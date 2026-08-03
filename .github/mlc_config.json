@@ -1,8 +1,7 @@
 {
   "ignorePatterns": [
-    { "pattern": "^https://github.com/.+/security/advisories/new" },
-    { "pattern": "^https://github.com/.+/discussions" }
-  ],
-  "retryOn429": true,
-  "retryCount": 3
+    { "pattern": "^\\.\\./\\.\\./security/advisories/new$" },
+    { "pattern": "^\\.\\./\\.\\./discussions$" },
+    { "pattern": "docs/audits/hall-of-fame\\.md$" }
+  ]
 }
