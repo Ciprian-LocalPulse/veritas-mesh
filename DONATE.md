@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/veritas-mesh-matrix-banner.svg" alt="Veritas Mesh" width="100%" />
+<img src="assets/veritas-mesh.png" width="100%">
 
 # 💚 Support Veritas Mesh
 
@@ -14,7 +14,7 @@ Open research • Apache-2.0 • Community Driven • No Vendor Lock-in
 
 <br>
 
-<img src="assets/section-divider.svg" width="100%">
+
 
 # Why support Veritas Mesh?
 
@@ -63,7 +63,7 @@ Your support helps fund:
 
 </div>
 
-<img src="assets/section-divider.svg" width="100%">
+
 
 # Cryptocurrency
 
@@ -79,7 +79,7 @@ Your support helps fund:
 
 > ⚠️ Always verify wallet addresses directly from this repository before making a transfer. Clipboard hijacking malware exists. When possible, send a small test transaction first.
 
-<img src="assets/section-divider.svg" width="100%">
+
 
 # Bank Transfer
 
@@ -113,7 +113,7 @@ Belgium
 
 For updated banking information or RON transfers, please contact the repository owner through GitHub.
 
-<img src="assets/section-divider.svg" width="100%">
+
 
 # GitHub Sponsors
 
@@ -121,7 +121,7 @@ If GitHub Sponsors is enabled, simply click the **❤️ Sponsor** button on the
 
 GitHub securely processes all payments.
 
-<img src="assets/section-divider.svg" width="100%">
+
 
 # Support Without Donating
 
@@ -173,7 +173,11 @@ Academic references, conference talks and research citations greatly increase ad
 
 If you believe transparent and verifiable compliance should become a public standard rather than proprietary software, share Veritas Mesh with your network.
 
-<img src="assets/section-divider.svg" width="100%">
+<?xml version="1.0" encoding="UTF-8"?>
+<div align="center">
+
+
+</div>
 
 <div align="center">
 
