@@ -1,18 +1,193 @@
-# Support Veritas Mesh
+<div align="center">
 
-Veritas Mesh is independent, self-funded, public-interest research founded and led by Ciprian Ştefan Pleşca, with no corporate, institutional, or government backing. Funding directly determines how much time can go into specification rigor, formal verification, and independent security audits — the parts of this project that are slow, unglamorous, and absolutely non-negotiable for something intended to be trusted by banks, hospitals, and public institutions.
+<img src="assets/veritas-mesh-matrix-banner.svg" alt="Veritas Mesh" width="100%" />
 
-## What contributions fund
+# 💚 Support Veritas Mesh
 
-- Time spent on formal specification and TLA+ modeling (Phase 1 of the [Roadmap](ROADMAP.md))
-- Independent third-party security audits (Phase 4) — historically one of the largest costs for a project at this trust level
-- Infrastructure: CI, documentation hosting, the attestation mesh testnet once it exists
-- Eventually, compensating dedicated maintainers for specific subsystems
+### **Verifiable Compliance Infrastructure for the Next Generation of Trust**
 
-## How to contribute financially
+<sub>
+Open research • Apache-2.0 • Community Driven • No Vendor Lock-in
+</sub>
 
-Official funding channels will be listed here once established (GitHub Sponsors and/or Open Collective are the current candidates, chosen for their transparency — both publish funding and expenditure history publicly, which matters for a project asking for institutional trust). This section will be updated with real, verified links before any funding is solicited publicly. If you see a donation link for this project anywhere that is **not** listed here or in the pinned repository description, please treat it as unverified and report it via [SECURITY.md](SECURITY.md).
+</div>
 
-## Non-financial contributions
+<br>
 
-Code, specification review, formal-methods expertise, regulatory domain knowledge, and — as always — honest criticism of any claim this project makes about itself are at least as valuable as money. See [CONTRIBUTING.md](CONTRIBUTING.md).
+<img src="assets/section-divider.svg" width="100%">
+
+# Why support Veritas Mesh?
+
+Veritas Mesh is an independent open-source research initiative building a new foundation for **cryptographically verifiable compliance**.
+
+Instead of asking organizations to simply claim they followed regulations, Veritas Mesh enables them to **mathematically prove** compliance while preserving confidentiality.
+
+The project explores technologies including:
+
+- Zero-Trust compliance
+- Verifiable audit trails
+- Policy-as-Code
+- Cryptographic attestations
+- Privacy-preserving verification
+- Cross-institution interoperability
+- AI governance and regulatory automation
+
+Everything is developed openly.
+
+No subscriptions.
+
+No enterprise paywall.
+
+No proprietary lock-in.
+
+Your support helps fund:
+
+- development of new protocol specifications
+- security research
+- documentation
+- reference implementations
+- interoperability testing
+- community infrastructure
+- long-term maintenance
+
+---
+
+<div align="center">
+
+```text
+╔══════════════════════════════════════════════╗
+║    VERIFY • PROVE • TRUST • COMPLY          ║
+║        ███ MATRIX NETWORK ONLINE ███        ║
+╚══════════════════════════════════════════════╝
+```
+
+</div>
+
+<img src="assets/section-divider.svg" width="100%">
+
+# Cryptocurrency
+
+<div align="center">
+
+| Network | Address |
+|:--------:|:--------|
+| **Bitcoin (BTC)** | `bc1qf3yy0w8z37rwavxpu38wem3yffpanw7wzj32qj` |
+| **Ethereum (ETH)** | `0x27d9a6a5b8507e6031bb044319410da96222d402` |
+| **Solana (SOL)** | `DPfrKx9VVwP4CUnWXxfrvTP5rjSCzaE132jmvLWXcBzP` |
+
+</div>
+
+> ⚠️ Always verify wallet addresses directly from this repository before making a transfer. Clipboard hijacking malware exists. When possible, send a small test transaction first.
+
+<img src="assets/section-divider.svg" width="100%">
+
+# Bank Transfer
+
+### USD
+
+```text
+Name:            Ciprian Stefan Plesca
+Account Type:    Checking
+Routing Number:  026073150
+Account Number:  8314225367
+BIC/SWIFT:       CMFGUS33
+
+Community Federal Savings Bank
+89-16 Jamaica Ave
+Woodhaven, NY 11421
+USA
+```
+
+### EUR
+
+```text
+Name:      Ciprian Stefan Plesca
+IBAN:      BE83 9679 1975 8915
+BIC/SWIFT: TRWIBEB1XXX
+
+Wise
+Rue du Trône 100
+Brussels
+Belgium
+```
+
+For updated banking information or RON transfers, please contact the repository owner through GitHub.
+
+<img src="assets/section-divider.svg" width="100%">
+
+# GitHub Sponsors
+
+If GitHub Sponsors is enabled, simply click the **❤️ Sponsor** button on the repository.
+
+GitHub securely processes all payments.
+
+<img src="assets/section-divider.svg" width="100%">
+
+# Support Without Donating
+
+Every contribution strengthens the ecosystem.
+
+### ⭐ Star the repository
+
+Visibility helps researchers, developers and institutions discover Veritas Mesh.
+
+---
+
+### 🐛 Report Issues
+
+Found a bug, ambiguity or edge case?
+
+Open an Issue.
+
+---
+
+### 🔒 Review Security
+
+Security reviews, protocol analysis and responsible disclosure are invaluable.
+
+---
+
+### 🔧 Contribute Code
+
+Improve:
+
+- protocol modules
+- verification engines
+- SDKs
+- documentation
+- dashboards
+- policy libraries
+- integrations
+
+See **CONTRIBUTING.md**
+
+---
+
+### 📚 Cite Veritas Mesh
+
+Academic references, conference talks and research citations greatly increase adoption.
+
+---
+
+### 🌍 Share the Project
+
+If you believe transparent and verifiable compliance should become a public standard rather than proprietary software, share Veritas Mesh with your network.
+
+<img src="assets/section-divider.svg" width="100%">
+
+<div align="center">
+
+```text
+█████████████████████████████████████████████████
+
+      CONNECTING TRUST
+      THROUGH VERIFIABLE PROOF
+
+█████████████████████████████████████████████████
+```
+
+### 💚 Every contribution helps build open compliance infrastructure.
+
+**Thank you for supporting independent open-source research.**
+
+</div>
