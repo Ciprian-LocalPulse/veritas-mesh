@@ -1,0 +1,51 @@
+// Copyright 2026 Ciprian Ştefan Pleşca
+// Licensed under the Apache License, Version 2.0.
+//
+// DRAFT — NOT A STABLE WIRE FORMAT.
+// This schema is an illustrative companion to spec/PROTOCOL_SPEC.md §4.
+// It has not been through the RFC process (see rfcs/) and WILL change.
+// Do not build production tooling against this file until an RFC
+// explicitly declares a version of it stable.
+
+syntax = "proto3";
+
+package veritas.v1;
+
+option go_package = "github.com/Ciprian-LocalPulse/veritas-mesh/mesh/gen/veritas/v1;veritasv1";
+
+// Identifies a specific published version of a rule module.
+// See spec/PROTOCOL_SPEC.md Section 6 (Versioning and Compatibility).
+message RuleReference {
+  string rule_id = 1;
+  string rule_version = 2; // semver
+}
+
+// A binding, hiding commitment to a private input value.
+// The concrete commitment scheme is not yet finalized —
+// see spec/PROTOCOL_SPEC.md Section 3.2.
+message Commitment {
+  string scheme = 1; // e.g. "pedersen" — placeholder, not finalized
+  bytes value = 2;
+}
+
+// The core attestation artifact defined in spec/PROTOCOL_SPEC.md Section 4.
+message Attestation {
+  RuleReference rule = 1;
+  string prover_identity = 2;      // public identity key / institutional ID
+  int64 event_timestamp_unix = 3;  // when the underlying action occurred
+  Commitment input_commitment = 4;
+  bytes proof = 5;                 // opaque to this schema; format depends on
+                                    // the proof system selected per Section 3.1
+  bytes signature = 6;             // Prover's signature over fields 1-5
+}
+
+// Placeholder verification request/response pair for the mesh network.
+// Real service definition is deferred until Phase 2 of ROADMAP.md.
+message VerifyRequest {
+  Attestation attestation = 1;
+}
+
+message VerifyResponse {
+  bool valid = 1;
+  string reason = 2; // populated only when valid == false
+}

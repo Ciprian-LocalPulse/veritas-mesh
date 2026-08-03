@@ -1,0 +1,27 @@
+# CODEOWNERS for Veritas Mesh
+#
+# This file defines who is automatically requested for review on pull
+# requests touching a given path. At this early stage, the founder is
+# the sole owner of every path. As dedicated subsystem maintainers are
+# appointed (see GOVERNANCE.md), this file will be updated to reflect
+# that — each new entry should correspond to a maintainer appointment
+# already recorded in CHANGELOG.md.
+
+*                           @Ciprian-LocalPulse
+
+/core/                      @Ciprian-LocalPulse
+/analysis/                  @Ciprian-LocalPulse
+/mesh/                      @Ciprian-LocalPulse
+/dashboard/                 @Ciprian-LocalPulse
+/proto/                     @Ciprian-LocalPulse
+/spec/                      @Ciprian-LocalPulse
+/compliance-mappings/       @Ciprian-LocalPulse
+/rfcs/                      @Ciprian-LocalPulse
+/whitepaper/                @Ciprian-LocalPulse
+
+# Governance and security-sensitive files always require the Lead
+# Maintainer's review, even after subsystem maintainers are appointed.
+/GOVERNANCE.md              @Ciprian-LocalPulse
+/SECURITY.md                @Ciprian-LocalPulse
+/SECURITY_CONTACTS.md        @Ciprian-LocalPulse
+/LICENSE                    @Ciprian-LocalPulse

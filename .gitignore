@@ -1,0 +1,29 @@
+# Rust
+/core/target/
+**/*.rs.bk
+Cargo.lock
+
+# Python
+/analysis/__pycache__/
+/analysis/**/__pycache__/
+*.pyc
+.venv/
+*.egg-info/
+
+# Go
+/mesh/bin/
+
+# Node / TypeScript
+/dashboard/node_modules/
+/dashboard/dist/
+/dashboard/.next/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+
+# Generated protobuf code (regenerate from proto/, don't commit)
+/sdk/*/generated/

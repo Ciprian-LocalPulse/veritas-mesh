@@ -1,0 +1,8 @@
+{
+  "ignorePatterns": [
+    { "pattern": "^https://github.com/.+/security/advisories/new" },
+    { "pattern": "^https://github.com/.+/discussions" }
+  ],
+  "retryOn429": true,
+  "retryCount": 3
+}

@@ -1,0 +1,93 @@
+name: CI
+
+# This workflow is intentionally conditional: each job only runs if the
+# corresponding subsystem actually contains source code. At the time this
+# workflow was written, most subsystems are placeholders (see the Project
+# Status table in README.md), so most jobs will currently report "skipped,"
+# not "passed" — which is the accurate signal to show, not a green
+# checkmark for code that doesn't exist yet.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  detect-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      core: ${{ steps.filter.outputs.core }}
+      analysis: ${{ steps.filter.outputs.analysis }}
+      mesh: ${{ steps.filter.outputs.mesh }}
+      dashboard: ${{ steps.filter.outputs.dashboard }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: filter
+        run: |
+          echo "core=$(find core -name '*.rs' | grep -q . && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "analysis=$(find analysis -name '*.py' | grep -q . && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "mesh=$(find mesh -name '*.go' | grep -q . && echo true || echo false)" >> "$GITHUB_OUTPUT"
+          echo "dashboard=$(test -f dashboard/package.json && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
+  core:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.core == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo build --workspace --manifest-path core/Cargo.toml
+      - run: cargo test --workspace --manifest-path core/Cargo.toml
+      - run: cargo clippy --workspace --manifest-path core/Cargo.toml -- -D warnings
+
+  analysis:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.analysis == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install -e analysis[dev]
+      - run: pytest analysis
+
+  mesh:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.mesh == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go build ./...
+        working-directory: mesh
+      - run: go test ./...
+        working-directory: mesh
+
+  dashboard:
+    needs: detect-changes
+    if: needs.detect-changes.outputs.dashboard == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - run: npm ci
+        working-directory: dashboard
+      - run: npm run build
+        working-directory: dashboard
+      - run: npm test
+        working-directory: dashboard
+
+  markdown-link-check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: gaurav-nelson/github-action-markdown-link-check@v1
+        with:
+          use-quiet-mode: 'yes'
+          config-file: '.github/mlc_config.json'
