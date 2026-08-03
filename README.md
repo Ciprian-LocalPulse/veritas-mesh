@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="assets/veritas-mesh-banner.png" alt="Veritas Mesh banner" width="100%">
+  <img src="assets/veritas-mesh.png" alt="Veritas Mesh banner" width="100%">
 </p>
 
 <h1 align="center">Veritas Mesh</h1>
