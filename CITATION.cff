@@ -1,0 +1,26 @@
+cff-version: 1.2.0
+message: "If you use Veritas Mesh in your research, an audit, or a deployment, please cite it as below."
+title: "Veritas Mesh: An Open Protocol for Verifiable Institutional Compliance"
+type: software
+authors:
+  - family-names: "Pleşca"
+    given-names: "Ciprian Ştefan"
+    affiliation: "Independent Researcher"
+    country: RO
+repository-code: "https://github.com/Ciprian-LocalPulse/veritas-mesh"
+license: Apache-2.0
+keywords:
+  - zero-knowledge proofs
+  - verifiable computation
+  - regulatory compliance
+  - privacy-preserving audit
+  - institutional trust
+  - open-source research
+abstract: >
+  Veritas Mesh is an open protocol and reference implementation for
+  cryptographically verifiable institutional attestations. It allows
+  regulated institutions — financial, healthcare, and governmental —
+  to prove that a policy or invariant was satisfied for a given action
+  without disclosing the private data underlying that action. The
+  project is developed as independent, public-interest research for
+  the benefit of humanity, with no institutional affiliation.
