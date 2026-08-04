@@ -22,6 +22,7 @@ This roadmap mirrors the phased plan in [`whitepaper/Veritas_Mesh_Whitepaper.md`
 - [ ] `core/` Rust crate implementing one narrow rule module end-to-end
 - [ ] Real, passing test suite (not a placeholder)
 - [ ] CI running on every commit
+- [ ] Benchmarks against real backends as they land (started: [`BENCHMARKS.md`](BENCHMARKS.md) covers the Ed25519 signature layer and the standalone `zk-poc/` Groth16 circuit; not yet the other two rule modules, and not yet on dedicated hardware)
 
 ## Phase 3 — First Institutional Pilot
 - [ ] A willing pilot partner (bank, hospital, or public agency) identified

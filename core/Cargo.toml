@@ -18,5 +18,20 @@ rand_core = "0.6"
 thiserror = "1"
 hex = "0.4"
 
+# `benches/*.rs` here use a plain `fn main()` (see proof_generation.rs's own
+# doc comment for why: no criterion, to keep the toolchain pin simple).
+# Without `harness = false`, Cargo links the default libtest harness
+# instead, which looks for `#[bench]` functions, finds none, and silently
+# no-ops `fn main()` -- `cargo bench` reports "0 measured" and the
+# benchmark never actually runs. This was true of every `[[bench]]` target
+# added here before this fix; add `harness = false` to any new one too.
+[[bench]]
+name = "proof_generation"
+harness = false
+
+[[bench]]
+name = "signature"
+harness = false
+
 
 

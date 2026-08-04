@@ -14,7 +14,7 @@ What problem does this solve? Why does the project need this change now, rather 
 
 ## Detailed Design
 
-The actual technical content. Be as precise as the change warrants — a cryptographic-primitive RFC needs precision that a documentation-restructuring RFC does not. If this RFC changes a security-relevant property, explicitly state which property (referencing [`spec/THREAT_ANALYSIS.md`](../spec/THREAT_ANALYSIS.md) §5 where relevant) and how the change affects it.
+The actual technical content. Be as precise as the change warrants — a cryptographic-primitive RFC needs precision that a documentation-restructuring RFC does not. If this RFC changes a security-relevant property, explicitly state which property (referencing the relevant section of [`spec/THREAT_ANALYSIS.md`](../spec/THREAT_ANALYSIS.md) — e.g. §5 for a specific attack scenario, §6 for one of the three target properties — rather than assuming a fixed section number, since that document's structure may change) and how the change affects it.
 
 ## Drawbacks
 

@@ -62,7 +62,7 @@ independent of whether the underlying crypto primitive is sound), but it
 is a different, narrower claim than "the protocol is sound."
 
 **Zero-knowledge / non-disclosure — the second property named in
-[`spec/THREAT_ANALYSIS.md`](../THREAT_ANALYSIS.md) §5 — is not represented
+[`spec/THREAT_ANALYSIS.md`](../THREAT_ANALYSIS.md) §6 — is not represented
 in this model at all**, and is not the kind of property TLC can check by
 this method. It is a statement about computational indistinguishability of
 a proof object's distribution, which requires the proof object to exist as
@@ -75,7 +75,7 @@ re-derived here.
 
 ## Bottom line
 
-- Two of the three target properties in `THREAT_ANALYSIS.md` §5 have a
+- Two of the three target properties in `THREAT_ANALYSIS.md` §6 have a
   first-pass, narrowly-scoped, mechanically-checked result at the lifecycle
   level: **soundness of the protocol wiring** (given an assumed-sound proof
   system) and **multi-verifier independence**.

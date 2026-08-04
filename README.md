@@ -98,6 +98,7 @@ Veritas Mesh needs cryptographers, formal-methods researchers, Rust and Go engin
 - Read [CONTRIBUTING.md](CONTRIBUTING.md) before opening a pull request.
 - Read [SECURITY.md](SECURITY.md) before reporting anything security-relevant — **please do not open a public issue for a security concern.**
 - Read [spec/THREAT_ANALYSIS.md](spec/THREAT_ANALYSIS.md) to understand what this protocol is, and is explicitly not, designed to defend against.
+- Read [BENCHMARKS.md](BENCHMARKS.md) for real, actually-executed timing numbers on the parts of this repository that are real cryptography today — and an explicit note on which parts are deliberately not benchmarked as if they were (see `core/`'s documented placeholder backends in [STATUS.md](STATUS.md)).
 
 ## Support the Project
 

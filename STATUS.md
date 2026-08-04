@@ -35,8 +35,13 @@ sandbox/CI environment limits (documented so a real CI failure is easy to
 tell apart from an environment quirk): `ed25519-dalek =2.0.0`,
 `base64ct =1.6.0`, `zeroize =1.7.0` in `core/Cargo.toml` (newer releases of
 these require a Rust edition the available toolchain couldn't parse); the
-`core/benches` benchmark uses `std::time::Instant` instead of `criterion`
-for the same reason (criterion's dependency chain has the same issue).
+`core/benches` benchmarks use `std::time::Instant` instead of `criterion`
+for the same reason (criterion's dependency chain has the same issue) —
+note this also means they need explicit `harness = false` `[[bench]]`
+entries in `Cargo.toml`, without which `cargo bench` silently no-ops them
+under the default libtest harness; this was actually wrong until it was
+caught and fixed (see [`BENCHMARKS.md`](BENCHMARKS.md)'s "A bug this work
+found and fixed" section).
 Revisit these pins on a newer toolchain — they're workarounds, not
 permanent constraints.
 

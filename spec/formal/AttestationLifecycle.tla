@@ -16,7 +16,7 @@
 (*   6. Verification            -> Verify                                 *)
 (*                                                                         *)
 (* IMPORTANT SCOPE CAVEAT -- read before citing any result from this file *)
-(* against the three target properties in spec/THREAT_ANALYSIS.md S5:     *)
+(* against the three target properties in spec/THREAT_ANALYSIS.md S6:     *)
 (*                                                                         *)
 (* This model treats the correctness of the (not-yet-selected, see        *)
 (* rfcs/0002-proof-system-selection.md) cryptographic proof system as an  *)
@@ -36,7 +36,7 @@
 (*     can never be steered to disagree on the same attestation.          *)
 (*                                                                         *)
 (* What this model does NOT check, and cannot check by this method:       *)
-(*   - Zero-knowledge / non-disclosure (THREAT_ANALYSIS.md S5, property 2)*)
+(*   - Zero-knowledge / non-disclosure (THREAT_ANALYSIS.md S6, property 2)*)
 (*     is a computational-indistinguishability property of the proof      *)
 (*     system itself, not of the lifecycle state machine. It has no       *)
 (*     representation here (proofClaim is a bare boolean, not a proof     *)
@@ -139,7 +139,7 @@ Next ==
 Spec == Init /\ [][Next]_vars /\ WF_vars(Next)
 
 -----------------------------------------------------------------------------
-(* Target properties -- see spec/THREAT_ANALYSIS.md Section 5.
+(* Target properties -- see spec/THREAT_ANALYSIS.md Section 6.
    Read the file header before citing these; only two of the three named
    properties are represented here, under an explicit soundness axiom. *)
 
