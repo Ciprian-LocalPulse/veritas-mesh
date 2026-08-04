@@ -47,7 +47,7 @@ git push origin main
    scris-o chiar tu în `spec/formal/README.md`: niciun fișier nu intră
    acolo fără să fi trecut printr-un model checker cu rezultatele incluse.
 3. **Modelul acoperă doar 2 din 3 proprietăți țintă** din
-   `THREAT_ANALYSIS.md` §5 — soundness-ul "cablajului" protocolului și
+   `THREAT_ANALYSIS.md` §6 — soundness-ul "cablajului" protocolului și
    independența multi-verificator. Zero-knowledge/non-disclosure rămâne
    deschis, corect, pentru că e o proprietate a sistemului de proof
    criptografic ales (RFC 0002), nu ceva ce un model de stări finite poate

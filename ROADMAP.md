@@ -12,11 +12,11 @@ This roadmap mirrors the phased plan in [`whitepaper/Veritas_Mesh_Whitepaper.md`
 - [ ] First round of public RFC discussion on the Verifier API (`rfcs/0004-verifier-api.md`), ahead of Phase 5's `mesh/` implementation work
 
 ## Phase 1 — Formal Modeling
-- [ ] TLA+ model of the attestation lifecycle state machine
-- [ ] Mechanically checked soundness property
-- [ ] Mechanically checked zero-knowledge / non-disclosure property
-- [ ] Mechanically checked multi-verifier independence property
-- [ ] Published under `spec/formal/`
+- [x] TLA+ model of the attestation lifecycle state machine (`spec/formal/AttestationLifecycle.tla`, plus a companion `AttestationNonInterference.tla` checking the same wiring for a private-witness-to-verdict leak)
+- [x] Mechanically checked soundness property (lifecycle-wiring level, under an explicit assumption of the not-yet-selected proof system's cryptographic soundness — see `spec/formal/AttestationLifecycle_report.md`)
+- [ ] Mechanically checked zero-knowledge / non-disclosure property — **not achievable by TLA+/TLC by construction** (computational indistinguishability, not a finite-state property); to be resolved by citing the selected proof system's own published security proof once [RFC 0002](../rfcs/0002-proof-system-selection.md) is accepted, per `spec/formal/README.md`
+- [x] Mechanically checked multi-verifier independence property
+- [x] Published under `spec/formal/`
 
 ## Phase 2 — Minimal Proof Engine
 - [ ] `core/` Rust crate implementing one narrow rule module end-to-end
