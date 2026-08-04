@@ -25,10 +25,12 @@ regulatory compliance to a real regulator.
 | `dashboard/` (TS+React) | `AttestationViewer`, `RuleModuleExplorer`, typed `veritasClient.ts` | `tsc --noEmit` clean (strict mode); `vitest`: **3 tests pass** |
 | `sdk/typescript/` | Transaction-threshold rule check; also runs the JSON vector fixture | `tsc --noEmit` clean; `vitest`: **10 tests pass** |
 | `proto/` | `.proto` schema for attestations, rule-module publishing, and a gRPC verifier service; a `buf.gen.yaml` codegen config | Schema-valid; **not yet run** — see below |
+| `zk-poc/` (Rust) | **A real Groth16 zero-knowledge circuit** (BN254, via `arkworks`) proving `amount <= threshold` for the `banking-basel-iii` rule, with bit-decomposition range checks. Not yet wired into `core/`'s `Attestation` pipeline — see `zk-poc/README.md` | `cargo test --package veritas-zk-poc`: **6 tests pass**, including a soundness test that a false claim cannot be proven at all. `cargo run --example demo --release` prints concrete metrics: 129 constraints, 128-byte proofs, ~9ms prove / ~3ms verify |
 | `.github/workflows/ci.yml` | Real per-language test jobs, one per row above | Mirrors the commands actually run while building this |
 
-**Total: 69 automated tests across 5 languages/toolchains, all passing as
-of this commit.** Toolchain versions that were pinned to work around
+**Total: 75 automated tests across 5 languages/toolchains, all passing as
+of this commit** (69 from the original scaffold + 6 from `zk-poc/`'s real
+Groth16 circuit). Toolchain versions that were pinned to work around
 sandbox/CI environment limits (documented so a real CI failure is easy to
 tell apart from an environment quirk): `ed25519-dalek =2.0.0`,
 `base64ct =1.6.0`, `zeroize =1.7.0` in `core/Cargo.toml` (newer releases of
@@ -48,10 +50,14 @@ use — this is the index, not the full explanation:
 
 - **`core/src/proof/groth16.rs`, `core/src/proof/stark.rs`** — implement
   the `ProofSystem` trait, but "prove" = sign a hash of the witness, not a
-  SNARK/STARK. **No zero-knowledge or succinctness property holds today.**
-  Real implementation needs `arkworks` (Groth16, needs a per-circuit
-  trusted-setup ceremony) or `winterfell` (STARK, transparent but bigger
-  proofs) — that choice is exactly what RFC-0002 is for.
+  SNARK/STARK. **No zero-knowledge or succinctness property holds today**
+  in `core/` itself. **Update:** `zk-poc/` now contains a real, tested
+  Groth16 circuit (arkworks, BN254) for the `banking-basel-iii` rule —
+  128-byte proofs, ~9ms to prove, real soundness (false claims produce no
+  proof at all). It is a standalone crate, not yet wired into
+  `core::proof::groth16::Groth16Placeholder` — see `zk-poc/README.md`
+  for the concrete integration steps. `core/src/proof/stark.rs` has no
+  equivalent real implementation yet.
 - **`core/src/commitment/pedersen.rs`** — falls back to the hash-based
   scheme internally. **No homomorphic property, no elliptic-curve discrete
   log hardness guarantee.** Needs a curve decision from RFC-0003, which is

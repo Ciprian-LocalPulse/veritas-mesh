@@ -14,13 +14,15 @@ on:
 
 jobs:
   rust:
-    name: Rust (core/, sdk/rust/)
+    name: Rust (core/, sdk/rust/, zk-poc/)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
       - name: cargo test --workspace
         run: cargo test --workspace --verbose
+      - name: zk-poc demo (concrete Groth16 metrics, informational)
+        run: cargo run --package veritas-zk-poc --example demo --release
 
   go-mesh:
     name: Go (mesh/)
@@ -95,9 +97,6 @@ jobs:
   proto-lint:
     name: proto lint (not yet configured)
     runs-on: ubuntu-latest
-    # Intentionally non-blocking: this is a reminder, not a real check yet.
-    # See proto/buf.gen.yaml for why uf generate hasn't been run in CI.
-    continue-on-error: true
     steps:
       - run: |
           echo "proto/ has no buf lint/breaking job configured yet."
