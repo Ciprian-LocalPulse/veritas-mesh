@@ -13,9 +13,12 @@ option go_package = "github.com/Ciprian-LocalPulse/veritas-mesh/mesh/gen/veritas
 import "veritas/v1/attestation.proto";
 import "veritas/v1/rule_module.proto";
 
-// A verifier node's gRPC surface. Every method here has a real handler in
-// mesh/internal (see mesh/README.md); this file is the contract they, the
-// dashboard client, and every SDK are generated against.
+// A verifier node's gRPC surface. mesh/README.md currently marks mesh/
+// "not started" — no RPC here has a real handler yet. This file, together
+// with rfcs/0004-verifier-api.md's behavioral contract (error semantics,
+// independence requirements, auth posture), is the normative target a
+// first mesh/ implementation must be written against, and what the
+// dashboard client and every SDK will eventually be generated against.
 service VerifierService {
   // Verify a single attestation. This is the multi-verifier-independence
   // entry point: any two independent implementations of this RPC, given

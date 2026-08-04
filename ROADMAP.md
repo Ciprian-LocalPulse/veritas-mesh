@@ -9,6 +9,7 @@ This roadmap mirrors the phased plan in [`whitepaper/Veritas_Mesh_Whitepaper.md`
 - [x] Threat model draft (`spec/THREAT_ANALYSIS.md`)
 - [ ] First round of public RFC discussion on the attestation format
 - [ ] First round of public RFC discussion on proof-system selection (SNARK vs. STARK for the reference implementation)
+- [ ] First round of public RFC discussion on the Verifier API (`rfcs/0004-verifier-api.md`), ahead of Phase 5's `mesh/` implementation work
 
 ## Phase 1 — Formal Modeling
 - [ ] TLA+ model of the attestation lifecycle state machine
