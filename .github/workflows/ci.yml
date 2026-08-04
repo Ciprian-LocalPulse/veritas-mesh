@@ -95,6 +95,9 @@ jobs:
   proto-lint:
     name: proto lint (not yet configured)
     runs-on: ubuntu-latest
+    # Intentionally non-blocking: this is a reminder, not a real check yet.
+    # See proto/buf.gen.yaml for why uf generate hasn't been run in CI.
+    continue-on-error: true
     steps:
       - run: |
           echo "proto/ has no buf lint/breaking job configured yet."
