@@ -1,0 +1,43 @@
+{
+  "_comment": "Cross-language interoperability vectors for TransactionThresholdRule (rule_id=banking-basel-iii). Every SDK (rust/python/typescript/go) must implement Rule.check and Rule.canonical_bytes such that running these inputs through its own implementation produces expect_pass and, for canonical_bytes, a hex string matching expect_canonical_bytes_hex exactly. If any SDK diverges here, multi-verifier independence (the whole point of the protocol) is broken.",
+  "rule_id": "banking-basel-iii",
+  "vectors": [
+    {
+      "name": "under_threshold",
+      "input": {
+        "transaction_amount_minor": 50000,
+        "risk_adjusted_threshold_minor": 100000,
+        "customer_id_hash_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "expect_pass": true
+    },
+    {
+      "name": "exactly_at_threshold",
+      "input": {
+        "transaction_amount_minor": 100000,
+        "risk_adjusted_threshold_minor": 100000,
+        "customer_id_hash_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "expect_pass": true
+    },
+    {
+      "name": "over_threshold_by_one_minor_unit",
+      "input": {
+        "transaction_amount_minor": 100001,
+        "risk_adjusted_threshold_minor": 100000,
+        "customer_id_hash_hex": "1111111111111111111111111111111111111111111111111111111111111111"
+      },
+      "expect_pass": false
+    },
+    {
+      "name": "zero_amount_zero_threshold",
+      "input": {
+        "transaction_amount_minor": 0,
+        "risk_adjusted_threshold_minor": 0,
+        "customer_id_hash_hex": "0000000000000000000000000000000000000000000000000000000000000000"
+      },
+      "expect_pass": true
+    }
+  ],
+  "_note_on_hashes": "customer_id_hash_hex values above are 32 bytes of placeholder hex (correct length) but NOT real SHA-256 outputs of any actual customer id -- shape-correct filler so canonical_bytes tests are byte-exact; swap in real Sha256(customer_id) hex whenever a vector needs to represent an actual hash computation."
+}

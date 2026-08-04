@@ -1,0 +1,18 @@
+{
+  "name": "@veritas-mesh/sdk",
+  "version": "0.1.0-alpha.0",
+  "description": "TypeScript client SDK for Veritas Mesh. Consumed by dashboard/ and external clients. See sdk/README.md: message types here should eventually be generated from proto/veritas/v1/*.proto rather than hand-mirrored.",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@types/node": "^26.1.2",
+    "typescript": "^5.5.4",
+    "vitest": "^2.0.5"
+  }
+}

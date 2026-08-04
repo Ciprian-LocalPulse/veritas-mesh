@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veritas-sdk"
+version = "0.1.0a0"
+description = "Python client SDK for Veritas Mesh. See sdk/README.md: message types here should eventually be generated from proto/veritas/v1/*.proto rather than hand-mirrored."
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["veritas_sdk*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

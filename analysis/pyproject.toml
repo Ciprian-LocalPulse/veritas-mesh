@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "veritas-analysis"
+version = "0.1.0a0"
+description = "Risk-analysis and legacy-system connectors: translates institutional data into rule-module witness inputs. Never generates proofs itself -- that stays in core/, per whitepaper §6.2."
+requires-python = ">=3.10"
+license = { text = "Apache-2.0" }
+# veritas-sdk is a workspace-local dependency (../sdk/python). A relative
+# `file://` URI here isn't portable across pip versions/platforms, so it's
+# intentionally NOT declared as a `dependencies` entry -- install order is:
+#   pip install -e ../sdk/python && pip install -e .
+# (see analysis/README.md "Development setup").
+dependencies = []
+
+[project.optional-dependencies]
+dev = ["pytest>=7.0"]
+
+[tool.setuptools.packages.find]
+include = ["veritas_analysis*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

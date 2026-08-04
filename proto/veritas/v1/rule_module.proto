@@ -1,0 +1,66 @@
+// Copyright 2026 Ciprian Ştefan Pleşca
+// Licensed under the Apache License, Version 2.0.
+//
+// DRAFT — NOT A STABLE WIRE FORMAT.
+// Companion to spec/PROTOCOL_SPEC.md and compliance-mappings/*.md. Not
+// through the RFC process yet — do not build production tooling against
+// this file until an RFC explicitly declares a version stable.
+
+syntax = "proto3";
+
+package veritas.v1;
+
+option go_package = "github.com/Ciprian-LocalPulse/veritas-mesh/mesh/gen/veritas/v1;veritasv1";
+
+import "veritas/v1/attestation.proto";
+
+// Identifies which proof backend a rule module's circuit was compiled
+// against. Mirrors `veritas_core::proof::ProofSystemId` — keep in sync,
+// this is exactly the kind of drift proto-generated stubs are meant to
+// prevent once the generation pipeline (see sdk/README.md) is wired up.
+enum ProofSystemId {
+  PROOF_SYSTEM_UNSPECIFIED = 0;
+  PROOF_SYSTEM_TOY_HASH_COMMITMENT = 1; // matches ToyHashCommitment = 0 in Rust;
+                                         // offset by 1 here because proto3 enum
+                                         // zero-values are reserved for "unset".
+  // Reserved for real backends pending RFC-0002:
+  // PROOF_SYSTEM_GROTH16_BN254 = 2;
+  // PROOF_SYSTEM_STARK_WINTERFELL = 3;
+}
+
+// Metadata published alongside a compiled circuit so verifiers know how to
+// interpret an Attestation.proof field referencing this rule_id.
+message RuleModuleManifest {
+  RuleReference rule = 1;
+  ProofSystemId proof_system = 2;
+  // SHA-256 of the compiled circuit artifact (verifying key, AIR
+  // definition, etc.) — lets a verifier confirm they're using the exact
+  // circuit version the prover claims, without re-deriving it.
+  bytes circuit_digest = 3;
+  // Where compliance-mappings/<rule_id>.md documents the human-readable
+  // rule this circuit implements.
+  string compliance_mapping_path = 4;
+  // Free-text tractability note copied from the compliance mapping doc at
+  // publish time, so a verifier doesn't have to cross-reference docs to
+  // know "this is Phase 2, not a legal compliance guarantee."
+  string tractability_note = 5;
+}
+
+message PublishRuleModuleRequest {
+  RuleModuleManifest manifest = 1;
+  bytes publisher_signature = 2; // over the serialized manifest
+}
+
+message PublishRuleModuleResponse {
+  bool accepted = 1;
+  string reason = 2; // populated only when accepted == false
+}
+
+message GetRuleModuleRequest {
+  string rule_id = 1;
+  string rule_version = 2;
+}
+
+message GetRuleModuleResponse {
+  RuleModuleManifest manifest = 1;
+}

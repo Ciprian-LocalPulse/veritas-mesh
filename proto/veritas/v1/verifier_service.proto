@@ -1,0 +1,49 @@
+// Copyright 2026 Ciprian Ştefan Pleşca
+// Licensed under the Apache License, Version 2.0.
+//
+// DRAFT — NOT A STABLE WIRE FORMAT. See attestation.proto header for the
+// same caveat; it applies here too.
+
+syntax = "proto3";
+
+package veritas.v1;
+
+option go_package = "github.com/Ciprian-LocalPulse/veritas-mesh/mesh/gen/veritas/v1;veritasv1";
+
+import "veritas/v1/attestation.proto";
+import "veritas/v1/rule_module.proto";
+
+// A verifier node's gRPC surface. Every method here has a real handler in
+// mesh/internal (see mesh/README.md); this file is the contract they, the
+// dashboard client, and every SDK are generated against.
+service VerifierService {
+  // Verify a single attestation. This is the multi-verifier-independence
+  // entry point: any two independent implementations of this RPC, given
+  // the same Attestation, must return the same VerifyResponse.valid — that
+  // property is what core/tests/vectors/ is for.
+  rpc Verify(VerifyRequest) returns (VerifyResponse);
+
+  // Verify many attestations in one call (batched for gossip-relay nodes
+  // that need to validate a backlog quickly).
+  rpc VerifyBatch(VerifyBatchRequest) returns (VerifyBatchResponse);
+
+  // Look up a rule module's published manifest so a verifier can confirm
+  // which circuit/proof-system an attestation's rule_id maps to.
+  rpc GetRuleModule(GetRuleModuleRequest) returns (GetRuleModuleResponse);
+
+  // Streaming subscription to newly gossiped attestations for a given
+  // rule_id — used by mesh/internal/gossip and the dashboard's live view.
+  rpc SubscribeAttestations(SubscribeAttestationsRequest) returns (stream Attestation);
+}
+
+message VerifyBatchRequest {
+  repeated Attestation attestations = 1;
+}
+
+message VerifyBatchResponse {
+  repeated VerifyResponse results = 1; // same order as the request
+}
+
+message SubscribeAttestationsRequest {
+  string rule_id = 1; // empty string = subscribe to all rule_ids
+}

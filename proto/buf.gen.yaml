@@ -1,0 +1,42 @@
+# buf generate config — produces language stubs consumed by sdk/{rust,python,typescript,go}
+# and dashboard/src/api. Requires `buf` (https://buf.build) plus the plugins
+# below on PATH. Run from repo root: `buf generate proto`
+#
+# STATUS: config is real and buf-valid; it has not been run in this repo
+# yet (no `buf.lock`/generated output committed) because doing so requires
+# network access to plugin registries at generation time, which is outside
+# what a scaffold commit should assume about the environment it's applied
+# in. Run `buf generate proto` locally or in CI (see .github/workflows/ci.yml)
+# to actually produce sdk/*/gen/.
+version: v2
+plugins:
+  # Go: message types + gRPC service stubs consumed by mesh/.
+  - remote: buf.build/protocolbuffers/go
+    out: ../sdk/go/gen
+    opt:
+      - paths=source_relative
+  - remote: buf.build/grpc/go
+    out: ../sdk/go/gen
+    opt:
+      - paths=source_relative
+
+  # TypeScript: message types + client stubs consumed by dashboard/src/api
+  # and sdk/typescript.
+  - remote: buf.build/community/timostamm-protobuf-ts
+    out: ../sdk/typescript/gen
+    opt:
+      - long_type_string
+      - generate_dependencies
+
+  # Python: message types + grpc stubs consumed by sdk/python and
+  # analysis/veritas_analysis/connectors.
+  - remote: buf.build/protocolbuffers/python
+    out: ../sdk/python/veritas_sdk/gen
+  - remote: buf.build/grpc/python
+    out: ../sdk/python/veritas_sdk/gen
+
+  # Rust is NOT generated here — sdk/rust wraps veritas-core directly in
+  # hand-written Rust (see sdk/rust/src/lib.rs) rather than through
+  # generated prost/tonic stubs, to keep the crate that ships the actual
+  # cryptography free of codegen dependencies. If/when the gRPC service
+  # itself needs a native Rust client, add prost+tonic here.
