@@ -8,15 +8,16 @@
 
 This RFC proposes Pedersen commitments over the same curve family already
 introduced for the SNARK track in
-[RFC 0002](0002-proof-system-selection.md) (BLS12-381) as the default
-commitment scheme for the `input_commitment` field defined in
-[RFC 0001](0001-attestation-format-finalization.md), with a hash-based
-commitment (matching whichever hash the STARK track in RFC 0002 settles
-on) as the companion scheme for attestations produced under the
-transparent-setup track — so that a STARK-track attestation never has a
-Pedersen (curve-based, non-transparent-setup-free) commitment sitting
-inside it and quietly reintroducing a setup dependency STARK was chosen to
-avoid.
+[RFC 0002](0002-proof-system-selection.md) (BN254, per that RFC's
+amended curve choice — see its "Curve choice for the SNARK track"
+subsection) as the default commitment scheme for the `input_commitment`
+field defined in [RFC 0001](0001-attestation-format-finalization.md),
+with a hash-based commitment (matching whichever hash the STARK track in
+RFC 0002 settles on) as the companion scheme for attestations produced
+under the transparent-setup track — so that a STARK-track attestation
+never has a Pedersen (curve-based, non-transparent-setup-free) commitment
+sitting inside it and quietly reintroducing a setup dependency STARK was
+chosen to avoid.
 
 ## Motivation
 
@@ -35,9 +36,9 @@ the commitment as a public input, so the two choices are not independent).
 
 ## Detailed Design
 
-### Default track (paired with the Groth16/BLS12-381 SNARK track)
+### Default track (paired with the Groth16/BN254 SNARK track)
 
-**Pedersen commitments** over BLS12-381's scalar field:
+**Pedersen commitments** over BN254's scalar field:
 
 ```
 Commit(m, r) = m·G + r·H
@@ -80,7 +81,8 @@ protecting deliberately, not an incidental detail.
 ### Tagging
 
 Both schemes are identified through the `commitment_scheme_id` field
-already introduced in RFC 0001: `"pedersen-bls12-381"` and
+already introduced in RFC 0001: `"pedersen-bn254"` (amended from
+`"pedersen-bls12-381"`, matching RFC 0002's amended curve choice) and
 `"hash-based-v1"` (final identifier to be fixed once RFC 0002's STARK
 follow-up names a specific hash function).
 
@@ -99,7 +101,13 @@ follow-up names a specific hash function).
   standard, well-understood tradeoff (hiding perfectly vs. binding
   perfectly is a real dichotomy for this class of commitment) but should
   be stated plainly rather than glossed over, consistent with this
-  project's stated documentation philosophy.
+  project's stated documentation philosophy. Concretely for the BN254
+  curve named above, "computational" means specifically the ~100-110 bit
+  margin discussed in RFC 0002's "Curve choice for the SNARK track"
+  subsection, not the full 128 bits originally assumed for a curve this
+  size — the same caveat, inherited here because binding rests on the
+  same discrete-log hardness the SNARK track's curve choice already
+  accepted.
 
 ## Alternatives Considered
 
