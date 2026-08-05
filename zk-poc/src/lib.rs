@@ -26,11 +26,17 @@
 //!   no single party ever holds the toxic waste that could forge proofs.
 //!   See README.md in this directory.
 //! - Only ONE rule (`banking-basel-iii`'s transaction threshold) has a
-//!   real circuit. `healthcare-hipaa` and `gov-supply-chain-integrity`'s
-//!   predicates (in `core/src/circuits/`) still need their own circuits,
-//!   which is nontrivial per-rule work, not a mechanical port of this one.
+//!   real circuit... actually now two: see `healthcare_circuit.rs` for
+//!   `healthcare-hipaa`'s disclosure-logging predicate, added after this
+//!   comment was first written. `gov-supply-chain-integrity`'s hash-chain
+//!   predicate still has no circuit -- see that module's future home for
+//!   why it's a structurally different (and harder) problem: proving a
+//!   SHA-256 hash chain in zero-knowledge needs a SHA-256 R1CS gadget,
+//!   which neither circuit here uses, versus this crate's two circuits so
+//!   far, which only need boolean/arithmetic gadgets.
 
 pub mod circuit;
+pub mod healthcare_circuit;
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey};
@@ -40,12 +46,13 @@ use ark_std::rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
 use circuit::TransactionThresholdCircuit;
+use healthcare_circuit::{EntryWitness, HealthcareDisclosureCircuit};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ZkPocError {
     #[error("circuit setup failed: {0}")]
     Setup(SynthesisError),
-    #[error("proving failed (this is EXPECTED when amount > threshold -- see module docs): {0}")]
+    #[error("proving failed (EXPECTED for a false claim -- e.g. amount > threshold, or an unauthorized/miscounted access log; see the relevant circuit's module docs): {0}")]
     Proving(SynthesisError),
     #[error("verification failed: {0}")]
     Verification(SynthesisError),
@@ -110,6 +117,66 @@ pub fn verify(
 /// (real usage) vs. tests (which should pass an explicit fixed seed).
 pub fn random_seed() -> u64 {
     ark_std::rand::thread_rng().gen()
+}
+
+// --- healthcare-hipaa: DisclosureLoggingRule ---
+// Same Keys type as banking-basel-iii above (ProvingKey<Bn254>/
+// VerifyingKey<Bn254> aren't circuit-specific types), so no new struct is
+// needed -- only the setup/prove/verify functions differ, because they
+// need to build a HealthcareDisclosureCircuit instead.
+
+/// Runs Groth16 setup for `HealthcareDisclosureCircuit`'s shape. Same
+/// non-ceremony caveat as `setup()` above applies in full.
+pub fn setup_healthcare(seed: u64) -> Result<Keys, ZkPocError> {
+    let mut rng = ChaCha20Rng::seed_from_u64(seed);
+    let circuit = HealthcareDisclosureCircuit::setup_shape(Fr::from(0u64));
+    let (proving_key, verifying_key) = Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng)
+        .map_err(ZkPocError::Setup)?;
+    Ok(Keys {
+        proving_key,
+        verifying_key,
+    })
+}
+
+/// Generates a real Groth16 proof that every observed access to
+/// `record_id` was logged and every logged access was authorized,
+/// without revealing which specific entries were real vs. padding, or
+/// any per-entry detail.
+///
+/// Returns `Err(ZkPocError::Proving(_))` if `entries` doesn't actually
+/// satisfy the predicate (count mismatch or an unauthorized active
+/// entry) -- same soundness-via-unsatisfiable-witness pattern as `prove()`
+/// above. Panics (not an `Err`) if `entries.len() > MAX_ENTRIES` -- see
+/// `HealthcareDisclosureCircuit::with_witness`'s docs for why that's a
+/// distinct failure mode (a circuit-capacity limit, not the predicate
+/// being false) and should be checked by the caller before this point in
+/// a real integration.
+pub fn prove_healthcare(
+    proving_key: &ProvingKey<Bn254>,
+    record_id: Fr,
+    observed_access_count: u64,
+    entries: &[EntryWitness],
+    rng_seed: u64,
+) -> Result<Proof<Bn254>, ZkPocError> {
+    let mut rng = ChaCha20Rng::seed_from_u64(rng_seed);
+    let circuit =
+        HealthcareDisclosureCircuit::with_witness(record_id, observed_access_count, entries);
+    Groth16::<Bn254>::prove(proving_key, circuit, &mut rng).map_err(ZkPocError::Proving)
+}
+
+/// Verifies a proof against the PUBLIC `record_id` and
+/// `observed_access_count`. Never sees the individual log entries or
+/// which slots were padding -- that's the entire point.
+pub fn verify_healthcare(
+    verifying_key: &VerifyingKey<Bn254>,
+    record_id: Fr,
+    observed_access_count: u64,
+    proof: &Proof<Bn254>,
+) -> Result<bool, ZkPocError> {
+    let pvk: PreparedVerifyingKey<Bn254> = ark_groth16::prepare_verifying_key(verifying_key);
+    let public_inputs = [record_id, Fr::from(observed_access_count)];
+    Groth16::<Bn254>::verify_with_processed_vk(&pvk, &public_inputs, proof)
+        .map_err(ZkPocError::Verification)
 }
 
 #[cfg(test)]
@@ -180,5 +247,112 @@ mod tests {
         let threshold = 1_000_000_000_000u64;
         let proof = prove(&keys.proving_key, threshold - 1, threshold, PROVE_SEED).unwrap();
         assert!(verify(&keys.verifying_key, threshold, &proof).unwrap());
+    }
+
+    // --- healthcare-hipaa end-to-end tests ---
+    // healthcare_circuit.rs's own tests check constraint SATISFACTION
+    // directly (no proving key needed, much faster). These check the full
+    // Groth16 setup -> prove -> verify pipeline, same as the tests above
+    // do for banking-basel-iii -- both layers matter: a circuit can be
+    // satisfiable in the abstract and still have an integration bug in
+    // how setup/prove/verify wire it up (wrong public input order being
+    // the classic one, checked explicitly below).
+
+    fn entry(active: bool, authorized: bool) -> EntryWitness {
+        EntryWitness {
+            is_active: active,
+            authorized,
+        }
+    }
+
+    #[test]
+    fn healthcare_valid_claim_produces_a_proof_that_verifies() {
+        let keys = setup_healthcare(SETUP_SEED).expect("setup should succeed");
+        let record_id = Fr::from(42u64);
+        let entries = [entry(true, true), entry(true, true), entry(false, false)];
+
+        let proof = prove_healthcare(&keys.proving_key, record_id, 2, &entries, PROVE_SEED)
+            .expect("proving should succeed for a genuinely compliant log");
+
+        let valid = verify_healthcare(&keys.verifying_key, record_id, 2, &proof)
+            .expect("verification should not error");
+        assert!(valid, "a correctly generated proof must verify as valid");
+    }
+
+    #[test]
+    fn healthcare_count_mismatch_cannot_be_proven_at_all() {
+        let keys = setup_healthcare(SETUP_SEED).expect("setup should succeed");
+        let entries = [entry(true, true)];
+        // Claiming 2 observed accesses but only 1 entry is actually active.
+        let result = prove_healthcare(&keys.proving_key, Fr::from(1u64), 2, &entries, PROVE_SEED);
+        assert!(
+            result.is_err(),
+            "proving must fail when the active-entry count doesn't match the public claim"
+        );
+    }
+
+    #[test]
+    fn healthcare_unauthorized_active_entry_cannot_be_proven_at_all() {
+        let keys = setup_healthcare(SETUP_SEED).expect("setup should succeed");
+        let entries = [entry(true, true), entry(true, false)];
+        let result = prove_healthcare(&keys.proving_key, Fr::from(1u64), 2, &entries, PROVE_SEED);
+        assert!(
+            result.is_err(),
+            "proving must fail when any active entry is unauthorized"
+        );
+    }
+
+    #[test]
+    fn healthcare_proof_does_not_verify_against_a_different_record_id() {
+        // The vulnerability the module docs warn about, checked directly:
+        // a proof made for one record must not verify as if it were made
+        // for a different one, even with the same access count.
+        let keys = setup_healthcare(SETUP_SEED).expect("setup should succeed");
+        let entries = [entry(true, true)];
+        let proof =
+            prove_healthcare(&keys.proving_key, Fr::from(1u64), 1, &entries, PROVE_SEED).unwrap();
+
+        let valid_against_wrong_record =
+            verify_healthcare(&keys.verifying_key, Fr::from(2u64), 1, &proof).unwrap();
+        assert!(
+            !valid_against_wrong_record,
+            "a proof for record_id=1 must not verify against record_id=2"
+        );
+    }
+
+    #[test]
+    fn healthcare_proof_does_not_verify_against_a_different_count() {
+        let keys = setup_healthcare(SETUP_SEED).expect("setup should succeed");
+        let entries = [entry(true, true)];
+        let proof =
+            prove_healthcare(&keys.proving_key, Fr::from(1u64), 1, &entries, PROVE_SEED).unwrap();
+
+        let valid_against_wrong_count =
+            verify_healthcare(&keys.verifying_key, Fr::from(1u64), 99, &proof).unwrap();
+        assert!(
+            !valid_against_wrong_count,
+            "a proof for count=1 must not verify against count=99"
+        );
+    }
+
+    #[test]
+    fn healthcare_full_capacity_all_authorized_works() {
+        let keys = setup_healthcare(SETUP_SEED).expect("setup should succeed");
+        let entries = [entry(true, true); healthcare_circuit::MAX_ENTRIES];
+        let proof = prove_healthcare(
+            &keys.proving_key,
+            Fr::from(7u64),
+            healthcare_circuit::MAX_ENTRIES as u64,
+            &entries,
+            PROVE_SEED,
+        )
+        .expect("proving should succeed at full circuit capacity");
+        assert!(verify_healthcare(
+            &keys.verifying_key,
+            Fr::from(7u64),
+            healthcare_circuit::MAX_ENTRIES as u64,
+            &proof
+        )
+        .unwrap());
     }
 }

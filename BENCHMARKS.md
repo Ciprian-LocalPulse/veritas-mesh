@@ -14,7 +14,8 @@ result.
 This repository has exactly three pieces of real, non-placeholder
 cryptography today (per [`STATUS.md`](STATUS.md)): the Ed25519 signature
 layer in `core/`, the hash-based commitment scheme in `core/`, and the
-Groth16 circuit in `zk-poc/`. All three are benchmarked below.
+Groth16 circuits in `zk-poc/` (two of them: `banking-basel-iii` and
+`healthcare-hipaa`). All three are benchmarked below.
 
 `core/src/proof/groth16.rs` and `stark.rs` are **not** benchmarked as if
 they were proof systems, because they aren't — they sign a hash of the
@@ -78,42 +79,64 @@ valid-vs-rejected verify() latency is not, and should not be read as, a
 constant-time analysis (that's `THREAT_ANALYSIS.md` §5.4's territory, out
 of scope for a latency benchmark).
 
-## Real cryptography: Groth16 circuit (`zk-poc/`)
+## Real cryptography: Groth16 circuits (`zk-poc/`)
 
 ```
 cargo run --package veritas-zk-poc --release --example bench
 ```
 
-Circuit: `banking-basel-iii`'s `amount <= threshold` predicate,
-`RANGE_BITS=64` (see `zk-poc/src/circuit.rs`). **129 constraints, 128
-witness variables, 2 public input variables** — a small circuit by SNARK
-standards, which is visible in the numbers below being small too.
+### `banking-basel-iii`
+
+Circuit: `amount <= threshold` predicate, `RANGE_BITS=64` (see
+`zk-poc/src/circuit.rs`). **129 constraints, 128 witness variables, 2
+public input variables.**
 
 | Stage | trials | mean | p50 | p95 | max |
 |---|---|---|---|---|---|
-| Trusted setup (non-ceremony, per-run) | 5 | 32.6 ms | 32.8 ms | 33.3 ms | 33.3 ms |
-| Proof generation (amount=1) | 50 | 9.0 ms | 8.8 ms | 10.5 ms | 12.1 ms |
-| Proof generation (amount=threshold/2) | 50 | 8.7 ms | 8.7 ms | 9.3 ms | 10.5 ms |
-| Proof generation (amount=threshold-1) | 50 | 8.8 ms | 8.8 ms | 9.3 ms | 9.5 ms |
-| Verification | 200 | 3.0 ms | 3.0 ms | 3.2 ms | 4.8 ms |
+| Trusted setup (non-ceremony, per-run) | 5 | 33.4 ms | 32.9 ms | 35.4 ms | 35.4 ms |
+| Proof generation (amount=1) | 50 | 9.4 ms | 9.1 ms | 11.1 ms | 14.3 ms |
+| Proof generation (amount=threshold/2) | 50 | 10.2 ms | 9.4 ms | 14.9 ms | 17.0 ms |
+| Proof generation (amount=threshold-1) | 50 | 9.3 ms | 9.1 ms | 10.3 ms | 10.8 ms |
+| Verification | 200 | 3.2 ms | 3.1 ms | 4.0 ms | 7.4 ms |
 
-- **Proving key: 29,296 bytes. Verifying key: 296 bytes. Proof: 128 bytes
-  — constant across all three witness magnitudes tested.** That last point
-  is the one worth stating plainly: proof generation time and proof size
-  do not vary meaningfully with the private `amount`'s magnitude (~9ms and
-  128 bytes whether `amount` is 1 or one-below-threshold), which is the
-  right shape for a value that's supposed to stay hidden — see
-  `spec/formal/AttestationNonInterference_report.md` for the protocol-wiring
-  side of this same question, and `THREAT_ANALYSIS.md` §5.4 for why this
-  observation is evidence, not proof, of side-channel resistance (three
-  points on a curve is not a timing-side-channel audit).
-- A ~9ms proof and ~3ms verification, for a 129-constraint circuit, is
-  consistent with published Groth16 benchmarks at this scale — this
-  circuit is small (one range-checked comparison), so these numbers say
-  little yet about how the three rule modules' eventual real-world
-  circuits (which will need more constraints, e.g. for HIPAA's
-  access-log-completeness predicate) will perform. That's a Phase-2-ongoing
-  question, not one this benchmark answers.
+Proving key: 29,296 bytes. Verifying key: 296 bytes. Proof: 128 bytes —
+constant across all three witness magnitudes tested.
+
+### `healthcare-hipaa`
+
+Circuit: disclosure-log completeness + per-entry authorization predicate,
+`MAX_ENTRIES=16` (see `zk-poc/src/healthcare_circuit.rs`). **65
+constraints, 48 witness variables, 3 public input variables** — smaller
+than the banking circuit, visible below in every stage running faster.
+
+| Stage | trials | mean | p50 | p95 | max |
+|---|---|---|---|---|---|
+| Trusted setup (non-ceremony, per-run) | 5 | 17.6 ms | 17.5 ms | 18.5 ms | 18.5 ms |
+| Proof generation (1 of 16 slots active) | 50 | 5.8 ms | 5.6 ms | 6.8 ms | 7.0 ms |
+| Proof generation (8 of 16 slots active) | 50 | 5.9 ms | 5.6 ms | 7.0 ms | 7.9 ms |
+| Proof generation (16 of 16 slots active) | 50 | 5.8 ms | 5.7 ms | 6.1 ms | 6.2 ms |
+| Verification | 200 | 3.2 ms | 3.1 ms | 4.1 ms | 4.6 ms |
+
+Proving key: 12,560 bytes. Verifying key: 328 bytes. Proof: 128 bytes —
+constant across all three occupancy levels tested (1, 8, and 16 of the 16
+available slots marked active). That last point matters for the same
+reason as the banking circuit's amount-invariance: proof size and timing
+not varying with *how many* of the fixed slots are real entries means the
+proof doesn't leak the record's actual access count beyond what's
+publicly claimed — three points on a curve, same caveat as the banking
+section above about this not being a rigorous side-channel audit.
+
+- Both circuits land at the same 128-byte proof size — expected for
+  Groth16 over the same curve (BN254): proof size depends on the proof
+  system and curve, not the circuit's constraint count. Constraint count
+  instead shows up in proving time (129 vs. 65 constraints tracking
+  roughly with ~9ms vs. ~5.8ms mean proving time) and key sizes (both
+  scale with witness/constraint count — the healthcare circuit's ~48
+  witness variables versus banking's 128 produces a proving key well
+  under half the size).
+- `gov-supply-chain-integrity` still has no circuit (needs a SHA-256 R1CS
+  gadget, structurally different from both circuits above), so this
+  document covers two of the three rule modules named in `STATUS.md`.
 
 ## Placeholder backend baseline (`core/`, NOT real proof generation)
 
@@ -152,8 +175,9 @@ invocation, not a manual binary call.
 
 ## What's next here (Roadmap Phase 2)
 
-- Benchmark the other two rule modules' predicates once they have real
-  circuits (currently only `banking-basel-iii` does, per `zk-poc/README.md`).
+- Benchmark `gov-supply-chain-integrity`'s predicate once it has a real
+  circuit (still doesn't — see `zk-poc/README.md`; both circuits above
+  now do).
 - Re-run on dedicated (non-shared, multi-core) hardware once available,
   and report both, rather than replacing the sandbox numbers — the
   difference itself is informative for anyone reasoning about deployment

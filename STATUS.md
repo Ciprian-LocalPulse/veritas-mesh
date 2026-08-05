@@ -25,12 +25,12 @@ regulatory compliance to a real regulator.
 | `dashboard/` (TS+React) | `AttestationViewer`, `RuleModuleExplorer`, typed `veritasClient.ts` | `tsc --noEmit` clean (strict mode); `vitest`: **3 tests pass** |
 | `sdk/typescript/` | Transaction-threshold rule check; also runs the JSON vector fixture | `tsc --noEmit` clean; `vitest`: **10 tests pass** |
 | `proto/` | `.proto` schema for attestations, rule-module publishing, and a gRPC verifier service; a `buf.gen.yaml` codegen config | Schema-valid; **not yet run** — see below |
-| `zk-poc/` (Rust) | **A real Groth16 zero-knowledge circuit** (BN254, via `arkworks`) proving `amount <= threshold` for the `banking-basel-iii` rule, with bit-decomposition range checks. Not yet wired into `core/`'s `Attestation` pipeline — see `zk-poc/README.md` | `cargo test --package veritas-zk-poc`: **6 tests pass**, including a soundness test that a false claim cannot be proven at all. `cargo run --example demo --release` prints concrete metrics: 129 constraints, 128-byte proofs, ~9ms prove / ~3ms verify |
+| `zk-poc/` (Rust) | **Two real Groth16 zero-knowledge circuits** (BN254, via `arkworks`): `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks), and `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`). Neither is yet wired into `core/`'s `Attestation` pipeline — see `zk-poc/README.md`. `gov-supply-chain-integrity` still has no circuit (needs a SHA-256 R1CS gadget neither circuit above uses — structurally harder, not yet started) | `cargo test --package veritas-zk-poc`: **21 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, and a test confirming a healthcare proof doesn't verify against a different `record_id`. `cargo run --example demo --release` / `--example demo_healthcare --release` print concrete metrics: banking is 129 constraints / 128-byte proofs / ~9ms prove / ~3ms verify; healthcare is 65 constraints / 128-byte proofs / ~5.6ms prove / ~3.1ms verify — see `BENCHMARKS.md` for the full statistical runs of both |
 | `.github/workflows/ci.yml` | Real per-language test jobs, one per row above | Mirrors the commands actually run while building this |
 
-**Total: 75 automated tests across 5 languages/toolchains, all passing as
-of this commit** (69 from the original scaffold + 6 from `zk-poc/`'s real
-Groth16 circuit). Toolchain versions that were pinned to work around
+**Total: 90 automated tests across 5 languages/toolchains, all passing as
+of this commit** (69 from the original scaffold + 21 from `zk-poc/`'s two
+real Groth16 circuits). Toolchain versions that were pinned to work around
 sandbox/CI environment limits (documented so a real CI failure is easy to
 tell apart from an environment quirk): `ed25519-dalek =2.0.0`,
 `base64ct =1.6.0`, `zeroize =1.7.0` in `core/Cargo.toml` (newer releases of
@@ -56,13 +56,17 @@ use — this is the index, not the full explanation:
 - **`core/src/proof/groth16.rs`, `core/src/proof/stark.rs`** — implement
   the `ProofSystem` trait, but "prove" = sign a hash of the witness, not a
   SNARK/STARK. **No zero-knowledge or succinctness property holds today**
-  in `core/` itself. **Update:** `zk-poc/` now contains a real, tested
-  Groth16 circuit (arkworks, BN254) for the `banking-basel-iii` rule —
-  128-byte proofs, ~9ms to prove, real soundness (false claims produce no
-  proof at all). It is a standalone crate, not yet wired into
+  in `core/` itself. **Update:** `zk-poc/` now contains two real, tested
+  Groth16 circuits (arkworks, BN254): `banking-basel-iii` (128-byte
+  proofs, ~9ms to prove) and `healthcare-hipaa` (128-byte proofs, ~5.6ms
+  to prove) — both with real soundness (false claims produce no proof at
+  all, checked explicitly in each circuit's tests). They are standalone
+  crate code, not yet wired into
   `core::proof::groth16::Groth16Placeholder` — see `zk-poc/README.md`
-  for the concrete integration steps. `core/src/proof/stark.rs` has no
-  equivalent real implementation yet.
+  for the concrete integration steps. `gov-supply-chain-integrity` has no
+  circuit yet (needs a SHA-256 R1CS gadget, a harder problem than either
+  circuit above). `core/src/proof/stark.rs` has no real implementation
+  for any rule yet.
 - **`core/src/commitment/pedersen.rs`** — falls back to the hash-based
   scheme internally. **No homomorphic property, no elliptic-curve discrete
   log hardness guarantee.** Needs a curve decision from RFC-0003, which is
