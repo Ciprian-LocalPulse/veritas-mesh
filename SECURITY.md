@@ -98,6 +98,42 @@ As the project matures toward its first releases, the following controls are pla
 - Reproducible builds for the `core/` proof engine.
 - Dependency review automation in CI for all five language ecosystems in this repository.
 
+### Dependency alert triage log
+
+Routine dependency-vulnerability triage, not a formal audit (see
+[`docs/audits/`](docs/audits/) for what that means once Phase 4 is
+reached) — logged here because "we looked into the alerts" is a claim
+that should be checkable, not just asserted.
+
+- **2026-08.** GitHub reported 5 alerts (1 critical, 1 high, 3 moderate)
+  on `main`. Root-caused to a single upstream issue:
+  [GHSA-67mh-4wv8-2f99](https://github.com/advisories/GHSA-67mh-4wv8-2f99)
+  (esbuild ≤0.24.2, dev-server CORS, upstream-rated Moderate) — pulled in
+  transitively by `vite@^5.4.0` in both `dashboard/package.json` and
+  `sdk/typescript/package.json`. `npm`'s advisory graph assigns
+  higher severity labels to several packages downstream in the same
+  chain (`vite`, `vite-node`, `@vitest/mocker`, `vitest`) that merely
+  *depend on* the vulnerable `esbuild`, which is why 1 root cause showed
+  up as 5 separate alerts. **Fix applied:** an `overrides` entry pinning
+  `esbuild` to `^0.25.0` in both `package.json` files, keeping
+  `vite@5.4.21` (already the version that fixes the unrelated
+  [CVE-2025-62522](https://github.com/advisories/GHSA-93m4-6634-74q7)
+  Windows path-traversal issue, so no separate action needed there).
+  Verified, not assumed: `npm install`, `tsc --noEmit`, and the existing
+  test suites pass in both packages after the override.
+  **Explicitly rejected:** `npm audit fix --force` (which upgrades to
+  `vite@8.2.0`/`vitest@4.1.10`) resolves every alert on paper, but was
+  tested and found to genuinely break `dashboard/`'s production build
+  (`vite build` fails with `Cannot resolve entry module index.html`) and
+  carries an unresolved peer-dependency conflict (`@vitejs/plugin-react@4.7.0`
+  does not declare support for `vite@8`). Left as a real, larger
+  migration for whenever `dashboard/` is actively worked on next, not
+  applied blindly for the sake of a clean `npm audit` output.
+  **Separate finding, not a dependency issue:** `dashboard/` has no
+  `index.html` at all, so `vite build` fails regardless of dependency
+  versions — a pre-existing gap in the scaffold, unrelated to this
+  triage, flagged here because it surfaced while testing the fix above.
+
 ## Questions
 
 For anything that isn't a vulnerability report — general security architecture questions, threat-model discussion, audit coordination — please open a public [GitHub Discussion](../../discussions) instead. Keeping that separate from the private reporting channel helps us keep genuine vulnerability reports moving fast.
