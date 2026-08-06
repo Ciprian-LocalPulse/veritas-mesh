@@ -16,7 +16,7 @@ regulatory compliance to a real regulator.
 
 | Layer | What's real | Evidence |
 |---|---|---|
-| `core/` (Rust) | `Attestation` struct + deterministic signing-byte encoding; Ed25519 sign/verify; SHA-256 hash-based commitment scheme (real hiding + binding under RO model); 3 compliance rule *predicates* evaluated in the clear (not yet in zero-knowledge — see below) | `cargo test --workspace`: **31 tests pass** |
+| `core/` (Rust) | `Attestation` struct + deterministic signing-byte encoding; Ed25519 sign/verify; SHA-256 hash-based commitment scheme (real hiding + binding under RO model); 3 compliance rule *predicates* evaluated in the clear; **2 of those 3 (`banking-basel-iii`, `healthcare-hipaa`) also have a real Groth16-over-BN254 `ProofSystem` backend** (`proof::groth16_bn254`, wired to `veritas-zk-poc`) — see below | `cargo test --workspace`: **39 tests pass** (was 31; +8 from `proof::groth16_bn254`) |
 | `sdk/rust/` | Thin prover/verifier wrapper over `core/` | included in the 31 above |
 | `mesh/` (Go) | In-memory + JSON-lines storage; peer registry; push-based gossip with dedup; a runnable (if network-less) node binary | `go test ./...`: **6 tests pass** across `mesh/` and `sdk/go/` |
 | `sdk/go/` | Audit-trail-integrity rule check, matching Rust's byte-for-byte | included above |
@@ -28,9 +28,10 @@ regulatory compliance to a real regulator.
 | `zk-poc/` (Rust) | **Two real Groth16 zero-knowledge circuits** (BN254, via `arkworks`): `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks), and `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`). Neither is yet wired into `core/`'s `Attestation` pipeline — see `zk-poc/README.md`. `gov-supply-chain-integrity` still has no circuit (needs a SHA-256 R1CS gadget neither circuit above uses — structurally harder, not yet started) | `cargo test --package veritas-zk-poc`: **21 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, and a test confirming a healthcare proof doesn't verify against a different `record_id`. `cargo run --example demo --release` / `--example demo_healthcare --release` print concrete metrics: banking is 129 constraints / 128-byte proofs / ~9ms prove / ~3ms verify; healthcare is 65 constraints / 128-byte proofs / ~5.6ms prove / ~3.1ms verify — see `BENCHMARKS.md` for the full statistical runs of both |
 | `.github/workflows/ci.yml` | Real per-language test jobs, one per row above | Mirrors the commands actually run while building this |
 
-**Total: 90 automated tests across 5 languages/toolchains, all passing as
+**Total: 98 automated tests across 5 languages/toolchains, all passing as
 of this commit** (69 from the original scaffold + 21 from `zk-poc/`'s two
-real Groth16 circuits). Toolchain versions that were pinned to work around
+real Groth16 circuits + 8 from `core::proof::groth16_bn254`, which wires
+those same two circuits into `core/`'s `ProofSystem` trait). Toolchain versions that were pinned to work around
 sandbox/CI environment limits (documented so a real CI failure is easy to
 tell apart from an environment quirk): `ed25519-dalek =2.0.0`,
 `base64ct =1.6.0`, `zeroize =1.7.0` in `core/Cargo.toml` (newer releases of
@@ -55,18 +56,22 @@ use — this is the index, not the full explanation:
 
 - **`core/src/proof/groth16.rs`, `core/src/proof/stark.rs`** — implement
   the `ProofSystem` trait, but "prove" = sign a hash of the witness, not a
-  SNARK/STARK. **No zero-knowledge or succinctness property holds today**
-  in `core/` itself. **Update:** `zk-poc/` now contains two real, tested
-  Groth16 circuits (arkworks, BN254): `banking-basel-iii` (128-byte
-  proofs, ~9ms to prove) and `healthcare-hipaa` (128-byte proofs, ~5.6ms
-  to prove) — both with real soundness (false claims produce no proof at
-  all, checked explicitly in each circuit's tests). They are standalone
-  crate code, not yet wired into
-  `core::proof::groth16::Groth16Placeholder` — see `zk-poc/README.md`
-  for the concrete integration steps. `gov-supply-chain-integrity` has no
-  circuit yet (needs a SHA-256 R1CS gadget, a harder problem than either
-  circuit above). `core/src/proof/stark.rs` has no real implementation
-  for any rule yet.
+  SNARK/STARK. **No zero-knowledge or succinctness property holds in
+  these two files.** **Update: this is no longer the whole story for
+  `core/`.** `core/src/proof/groth16_bn254.rs` now wires REAL,
+  tested Groth16-over-BN254 proving/verification (via `veritas-zk-poc`)
+  into `core/`'s own `ProofSystem` trait, for `banking-basel-iii`
+  (`BankingGroth16Backend`) and `healthcare-hipaa`
+  (`HealthcareGroth16Backend`) — 8 passing tests, including that a proof
+  correctly fails to verify against the wrong public inputs, and that a
+  claim the predicate rejects cannot be proven at all. See that module's
+  own docs for exactly what is and isn't bound into the ZK statement (not
+  every field of each rule's `Input` struct — e.g. `customer_id_hash` is
+  outside the circuit, handled by the commitment layer instead, not the
+  proof). `gov-supply-chain-integrity` has no circuit yet (needs a
+  SHA-256 R1CS gadget, a harder problem than either circuit above), so it
+  still only has the placeholder. `core/src/proof/stark.rs` has no real
+  implementation for any rule yet.
 - **`core/src/commitment/pedersen.rs`** — falls back to the hash-based
   scheme internally. **No homomorphic property, no elliptic-curve discrete
   log hardness guarantee.** Needs a curve decision from RFC-0003, which is

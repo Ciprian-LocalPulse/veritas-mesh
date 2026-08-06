@@ -17,6 +17,19 @@ rand = "0.8"
 rand_core = "0.6"
 thiserror = "1"
 hex = "0.4"
+veritas-zk-poc = { path = "../zk-poc" }
+ark-bn254 = "0.4"
+ark-groth16 = "0.4"
+ark-serialize = "0.4"
+ark-ff = "0.4"
+# Same toolchain-compat pins as zk-poc/Cargo.toml (rustc 1.75, see that
+# file's own "Toolchain notes" and root STATUS.md) -- ark-groth16 pulls in
+# the same transitive rayon/zeroize chain here that it does there, so the
+# same pins are needed or this crate fails to build for the same reason
+# zk-poc/ originally did.
+zeroize_derive = "=1.4.2"
+rayon = "=1.10.0"
+rayon-core = "=1.12.1"
 
 # `benches/*.rs` here use a plain `fn main()` (see proof_generation.rs's own
 # doc comment for why: no criterion, to keep the toolchain pin simple).
@@ -31,6 +44,10 @@ harness = false
 
 [[bench]]
 name = "signature"
+harness = false
+
+[[bench]]
+name = "groth16_bn254"
 harness = false
 
 

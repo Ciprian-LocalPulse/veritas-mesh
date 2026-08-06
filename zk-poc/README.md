@@ -101,36 +101,69 @@ it happened to for the first circuit.
 
 ## What's still needed to wire either circuit into `core/`
 
-1. Add a `Proof::Groth16Bn254(Vec<u8>)` variant to `core::proof::Proof`
-   (currently only `Proof::Toy` exists), carrying the
-   canonically-serialized `ark_groth16::Proof<Bn254>` bytes (see
-   `ark_serialize::CanonicalSerialize`, used in both `examples/demo*.rs`
-   files).
-2. Replace `core::proof::groth16::Groth16Placeholder`'s `prove`/`verify`
-   bodies with calls into this crate's `prove`/`verify` (banking) or
-   `prove_healthcare`/`verify_healthcare` (healthcare), dispatched on
-   `rule_id`.
+**Items 1-2 below are done** — see `core/src/proof/groth16_bn254.rs`
+(`BankingGroth16Backend`, `HealthcareGroth16Backend`), 8 passing tests,
+and `BENCHMARKS.md` for real numbers through the actual `ProofSystem`
+trait. Kept here, marked done rather than deleted, so the list still
+reads as a complete picture of what integration involves.
+
+1. ~~Add a `Proof::Groth16Bn254(Vec<u8>)` variant to `core::proof::Proof`~~
+   **Done.** Carries canonically-serialized `ark_groth16::Proof<Bn254>`
+   bytes, per `core/src/proof/mod.rs`.
+2. ~~Replace `core::proof::groth16::Groth16Placeholder`'s `prove`/`verify`
+   bodies~~ **Done differently than originally sketched here:** rather
+   than replacing the placeholder in place, two new backend structs
+   (`BankingGroth16Backend`, `HealthcareGroth16Backend`) were added in a
+   new file, `groth16_bn254.rs`, each rule-specific rather than dispatched
+   on `rule_id` inside one shared struct — see that module's own docs for
+   why (the `ProofSystem` trait has no `rule_id` parameter, and each
+   rule's circuit has an incompatible witness shape and its own key
+   pair). `groth16.rs`'s original placeholder is kept, not deleted — it's
+   still the only backend `gov-supply-chain-integrity` has, even in
+   placeholder form.
 3. Decide where each rule's `ProvingKey`/`VerifyingKey` (this crate's
    `Keys`) get stored/distributed — they need to be published once (see
    `proto/veritas/v1/rule_module.proto`'s `RuleModuleManifest.circuit_digest`,
    which already has a field for exactly this) and reused across every
-   proof for that rule, not regenerated per-attestation.
+   proof for that rule, not regenerated per-attestation. **Still open** —
+   `BankingGroth16Backend::setup`/`HealthcareGroth16Backend::setup` still
+   generate fresh (non-ceremony) keys per call, exactly like this crate's
+   own `setup`/`setup_healthcare`; `from_keys` exists on both backend
+   structs so a caller CAN load externally-published keys instead, but
+   nothing yet does.
 4. Replace the fixed-seed RNG in both `setup()`/`setup_healthcare()` with
    either a real multi-party trusted-setup ceremony, or switch rules to a
    transparent proof system (STARK) per RFC-0002 to avoid the ceremony
    question entirely — this repo's setup functions as written must never
-   be used outside tests.
+   be used outside tests. **Still open**, and now more urgent: `core/`'s
+   own backend structs inherit this exact same "never use outside tests"
+   caveat by construction (they call straight into `setup`/`setup_healthcare`),
+   so it's no longer just this crate's problem in isolation.
 5. Do the same circuit-design work for `gov-supply-chain-integrity`'s
    predicate (`core/src/circuits/gov_supply_chain.rs`) — its hash-chain
    integrity check needs a SHA-256 R1CS gadget, which neither circuit in
    this crate uses yet; this is a structurally harder, separate problem
    from both circuits above (numeric range check, and boolean/counting
-   logic respectively), not a mechanical port of either.
+   logic respectively), not a mechanical port of either. **Still open.**
 6. `healthcare-hipaa`'s `MAX_ENTRIES=16` cap needs a documented policy:
    either a per-rule-module-version constant chosen from real access-
    pattern data (not yet done — flagged in `src/healthcare_circuit.rs`),
    or a design that lets a record with more accesses split across
-   multiple attestations for the same period.
+   multiple attestations for the same period. **Still open** — and now
+   also enforced as a clean `Result::Err` (not a panic) at the
+   `core::proof::groth16_bn254` boundary when exceeded, per that module's
+   `HealthcareGroth16Backend::prove`.
+7. **New, found while wiring items 1-2:** neither backend proves anything
+   about fields outside its circuit's statement (e.g.
+   `TransactionThresholdInput::customer_id_hash`,
+   `DisclosureLogEntry::accessor_id_hash`/`timestamp_unix`) — those still
+   need RFC-0003's commitment scheme applied to the FULL
+   `Rule::canonical_bytes` output, entirely separately from the ZK proof
+   over the subset of fields each circuit actually constrains. No
+   orchestration layer combining "commit to everything, prove the
+   circuit-relevant subset in ZK" into one attestation-building call
+   exists yet — see `core/src/proof/groth16_bn254.rs`'s module docs for
+   the full reasoning behind why this split exists and matters.
 
 ## Toolchain notes
 

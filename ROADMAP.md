@@ -19,10 +19,10 @@ This roadmap mirrors the phased plan in [`whitepaper/Veritas_Mesh_Whitepaper.md`
 - [x] Published under `spec/formal/`
 
 ## Phase 2 — Minimal Proof Engine
-- [ ] `core/` Rust crate implementing one narrow rule module end-to-end
-- [ ] Real, passing test suite (not a placeholder)
+- [ ] `core/` Rust crate implementing one narrow rule module end-to-end (progress: `banking-basel-iii` and `healthcare-hipaa` now have real Groth16-over-BN254 proving/verification reachable through `core/`'s own `ProofSystem` trait — `core::proof::groth16_bn254`, wired to `veritas-zk-poc` — not yet "end-to-end" in the fuller sense: no orchestration layer yet combines that proof with RFC-0003's commitment and the Ed25519 signature into one attestation-building call; see `zk-poc/README.md`'s "what's still needed" item 7)
+- [ ] Real, passing test suite (not a placeholder) (98 tests passing across the repo as of the Groth16 wiring — real assertions, not placeholders, but Phase 2 as a whole isn't done per the item above)
 - [ ] CI running on every commit
-- [ ] Benchmarks against real backends as they land (started: [`BENCHMARKS.md`](BENCHMARKS.md) covers the Ed25519 signature layer and both standalone `zk-poc/` Groth16 circuits — `banking-basel-iii` and `healthcare-hipaa`; not yet `gov-supply-chain-integrity` (no circuit exists for it yet), and not yet on dedicated hardware)
+- [ ] Benchmarks against real backends as they land (covers the Ed25519 signature layer, both standalone `zk-poc/` Groth16 circuits, AND now the same two circuits wired through `core/`'s `ProofSystem` trait — see [`BENCHMARKS.md`](BENCHMARKS.md); not yet `gov-supply-chain-integrity` (no circuit exists for it yet), and not yet on dedicated hardware)
 
 ## Phase 3 — First Institutional Pilot
 - [ ] A willing pilot partner (bank, hospital, or public agency) identified

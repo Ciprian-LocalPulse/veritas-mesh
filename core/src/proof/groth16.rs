@@ -1,5 +1,15 @@
 //! PLACEHOLDER — implements `ProofSystem` but is NOT a Groth16 SNARK.
 //!
+//! **Update: superseded for two of the three rule modules.** See
+//! `proof::groth16_bn254` for the real Groth16-over-BN254 backends now
+//! wired in for `banking-basel-iii` and `healthcare-hipaa`, via
+//! `veritas-zk-poc`. This file is kept as-is — not deleted, not silently
+//! rewritten — as a reference point (what a placeholder looked like) and
+//! because `gov-supply-chain-integrity` still has no real circuit, so this
+//! placeholder is the only `ProofSystem` implementation currently able to
+//! stand in for that rule at all, even in its documented not-really-a-proof
+//! form.
+//!
 //! A real implementation here means, roughly:
 //!   1. Express each compliance rule (see `core::circuits`) as an R1CS
 //!      circuit using `arkworks` (`ark-relations::r1cs::ConstraintSynthesizer`).
