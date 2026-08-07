@@ -99,6 +99,79 @@ if the claim doesn't hold — see the function's own comments for why this
 was worth stating explicitly rather than assuming it "just works" the way
 it happened to for the first circuit.
 
+## Circuit 3: `gov-supply-chain-integrity` (`src/supply_chain_circuit.rs`)
+
+That an audit-log hash chain runs unbroken from a public genesis anchor
+to a public final state — `core::circuits::gov_supply_chain::AuditTrailIntegrityRule`'s
+predicate — in zero-knowledge, without revealing any individual
+`event_hash`. This is the circuit `zk-poc/README.md` and `STATUS.md` have
+both been calling "structurally harder" since the first two circuits
+landed, and it's harder for a specific, concrete reason: it's the first
+circuit in this crate that computes a real hash (SHA-256) *inside* the
+R1CS constraints, using
+[`ark_crypto_primitives::crh::sha256::constraints::Sha256Gadget`](https://docs.rs/ark-crypto-primitives/0.4.0/ark_crypto_primitives/crh/sha256/constraints/index.html)
+(a real, tested upstream gadget — not hand-rolled here; see
+`src/supply_chain_circuit.rs`'s module docs for why reimplementing
+SHA-256's round function in R1CS from scratch was deliberately avoided).
+
+Run `cargo run --package veritas-zk-poc --example demo_supply_chain --release`
+for the end-to-end walkthrough. Last measured (see `BENCHMARKS.md` for
+the full statistical run):
+
+| Metric | Value |
+|---|---|
+| Constraints | **318,668** |
+| Public input variables | **514** (256 per SHA-256 digest × 2, + 1 for the entry count — see below) |
+| Proving key size | **67,370,160 bytes (~64 MiB)** |
+| Verifying key size | 16,680 bytes |
+| **Proof size** | **128 bytes** (same as the other two circuits — a Groth16/BN254 invariant, not a coincidence) |
+| Proof generation | ~8.6 s |
+| Verification | ~2.8 ms |
+
+Every number in that table except proof size is roughly two to three
+orders of magnitude larger than either other circuit in this crate. This
+is the real cost of computing SHA-256 in R1CS, not a bug: each of the 4
+entries this circuit's fixed `MAX_ENTRIES` supports needs two 512-bit
+SHA-256 compression rounds (a 72-byte preimage — 8 bytes sequence number
++ 32 bytes event hash + 32 bytes previous hash — crosses SHA-256's 64-byte
+block boundary once padding is added), and each compression round costs
+tens of thousands of constraints with this gadget.
+
+**The 67 MiB proving key is the more operationally significant number.**
+Unlike the other two circuits' proving keys (29 KB and 13 KB — trivial to
+distribute), a proving key this size is a real deployment cost: every
+institution proving compliance under this rule module needs to store and
+load it. `MAX_ENTRIES=4` was chosen specifically to keep this circuit
+provable and testable within this project's own dev environment at all —
+see the module's own docs for what a real deployment auditing more than 4
+events per period would need instead (a larger, even more expensive
+`MAX_ENTRIES`, or a fundamentally different circuit design).
+
+**Why 514 public inputs:** `ark_r1cs_std::uint8::UInt8` allocates its
+value as 8 individual `Boolean` bits, not one field element — so a
+32-byte `DigestVar` public input is 256 separate public inputs (one Fr
+per bit), not 32. Two digests (`genesis_hash`, `final_linkage_hash`) plus
+one plain field element (`active_count`) is 256+256+1 = 513... plus one
+more accounting for how `ark-groth16` itself always reserves instance
+variable 0 for the constant `1` = 514 total, per
+`cs.num_instance_variables()`. This was the single easiest mistake to
+make while wiring this circuit's public-input vector in `lib.rs`'s
+`verify_supply_chain` — see that function's own doc comment (`digest_to_field_elements`)
+for the exact bit-ordering that turned out to matter, found by writing
+and running the integration test, not by reading the gadget's allocation
+code and assuming.
+
+### Why padding is order-sensitive here, unlike the healthcare circuit
+
+`HealthcareDisclosureCircuit`'s predicate is a pure count-and-set
+condition — padding position never matters. This predicate is a hash
+*chain*: entry `i`'s constraint genuinely depends on entry `i-1`'s
+computed output, so padding must be a contiguous suffix (active,
+active, ..., active, inactive, inactive, ...), never an active slot
+after an inactive one. This circuit enforces that directly as a real
+constraint — checked in `supply_chain_circuit.rs`'s own
+`active_slot_after_inactive_slot_cannot_be_proven` test.
+
 ## What's still needed to wire either circuit into `core/`
 
 **Items 1-2 below are done** — see `core/src/proof/groth16_bn254.rs`
@@ -139,12 +212,17 @@ reads as a complete picture of what integration involves.
    own backend structs inherit this exact same "never use outside tests"
    caveat by construction (they call straight into `setup`/`setup_healthcare`),
    so it's no longer just this crate's problem in isolation.
-5. Do the same circuit-design work for `gov-supply-chain-integrity`'s
-   predicate (`core/src/circuits/gov_supply_chain.rs`) — its hash-chain
-   integrity check needs a SHA-256 R1CS gadget, which neither circuit in
-   this crate uses yet; this is a structurally harder, separate problem
-   from both circuits above (numeric range check, and boolean/counting
-   logic respectively), not a mechanical port of either. **Still open.**
+5. ~~Do the same circuit-design work for `gov-supply-chain-integrity`'s
+   predicate~~ **Done** — see `src/supply_chain_circuit.rs`
+   (`SupplyChainIntegrityCircuit`), using a real upstream SHA-256 R1CS
+   gadget (`ark_crypto_primitives::crh::sha256`). 12 passing tests
+   (constraint-level + real Groth16 end-to-end), real measured numbers in
+   `BENCHMARKS.md` (318,668 constraints, 67 MiB proving key — see this
+   circuit's own module docs for why that's a genuine deployment cost,
+   not just a large number). **Not yet wired into `core/`'s
+   `ProofSystem` trait** — items 1-2's pattern (a `SupplyChainGroth16Backend`
+   in `core/src/proof/groth16_bn254.rs`) hasn't been applied to this
+   circuit yet; still open, now that the circuit itself exists to wire.
 6. `healthcare-hipaa`'s `MAX_ENTRIES=16` cap needs a documented policy:
    either a per-rule-module-version constant chosen from real access-
    pattern data (not yet done — flagged in `src/healthcare_circuit.rs`),
@@ -153,13 +231,15 @@ reads as a complete picture of what integration involves.
    also enforced as a clean `Result::Err` (not a panic) at the
    `core::proof::groth16_bn254` boundary when exceeded, per that module's
    `HealthcareGroth16Backend::prove`.
-7. **New, found while wiring items 1-2:** neither backend proves anything
-   about fields outside its circuit's statement (e.g.
-   `TransactionThresholdInput::customer_id_hash`,
-   `DisclosureLogEntry::accessor_id_hash`/`timestamp_unix`) — those still
-   need RFC-0003's commitment scheme applied to the FULL
-   `Rule::canonical_bytes` output, entirely separately from the ZK proof
-   over the subset of fields each circuit actually constrains. No
+7. **Found while wiring items 1-2, confirmed again by circuit 3:** none
+   of the three circuits prove anything about fields outside their own
+   statement (e.g. `TransactionThresholdInput::customer_id_hash`,
+   `DisclosureLogEntry::accessor_id_hash`/`timestamp_unix`, and now
+   `AuditTrailInput::period_start_unix`/`period_end_unix` — see
+   `supply_chain_circuit.rs`'s own module docs for why those two stay
+   out) — those still need RFC-0003's commitment scheme applied to the
+   FULL `Rule::canonical_bytes` output, entirely separately from the ZK
+   proof over the subset of fields each circuit actually constrains. No
    orchestration layer combining "commit to everything, prove the
    circuit-relevant subset in ZK" into one attestation-building call
    exists yet — see `core/src/proof/groth16_bn254.rs`'s module docs for

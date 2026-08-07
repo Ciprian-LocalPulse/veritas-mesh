@@ -25,13 +25,14 @@ regulatory compliance to a real regulator.
 | `dashboard/` (TS+React) | `AttestationViewer`, `RuleModuleExplorer`, typed `veritasClient.ts` | `tsc --noEmit` clean (strict mode); `vitest`: **3 tests pass** |
 | `sdk/typescript/` | Transaction-threshold rule check; also runs the JSON vector fixture | `tsc --noEmit` clean; `vitest`: **10 tests pass** |
 | `proto/` | `.proto` schema for attestations, rule-module publishing, and a gRPC verifier service; a `buf.gen.yaml` codegen config | Schema-valid; **not yet run** — see below |
-| `zk-poc/` (Rust) | **Two real Groth16 zero-knowledge circuits** (BN254, via `arkworks`): `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks), and `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`). Neither is yet wired into `core/`'s `Attestation` pipeline — see `zk-poc/README.md`. `gov-supply-chain-integrity` still has no circuit (needs a SHA-256 R1CS gadget neither circuit above uses — structurally harder, not yet started) | `cargo test --package veritas-zk-poc`: **21 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, and a test confirming a healthcare proof doesn't verify against a different `record_id`. `cargo run --example demo --release` / `--example demo_healthcare --release` print concrete metrics: banking is 129 constraints / 128-byte proofs / ~9ms prove / ~3ms verify; healthcare is 65 constraints / 128-byte proofs / ~5.6ms prove / ~3.1ms verify — see `BENCHMARKS.md` for the full statistical runs of both |
+| `zk-poc/` (Rust) | **Three real Groth16 zero-knowledge circuits** (BN254, via `arkworks`), one for each rule module: `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks); `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`); `gov-supply-chain-integrity`'s audit-log hash-chain integrity (real SHA-256 R1CS gadget, `MAX_ENTRIES=4` — see below for why so much smaller). Only the first two are wired into `core/`'s `ProofSystem` trait so far — see `zk-poc/README.md` | `cargo test --package veritas-zk-poc`: **33 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, a test confirming a healthcare proof doesn't verify against a different `record_id`, and one confirming a supply-chain proof doesn't verify against a different `genesis_hash`. `cargo run --example demo --release`, `--example demo_healthcare --release`, and `--example demo_supply_chain --release` print concrete metrics: banking is 129 constraints / 128-byte proofs / ~9ms prove / ~3ms verify; healthcare is 65 constraints / 128-byte proofs / ~5.6ms prove / ~3.1ms verify; **supply-chain is 318,668 constraints / 128-byte proofs / ~8.6s prove / ~2.8ms verify, with a ~64 MiB proving key** — see `BENCHMARKS.md` for the full statistical runs and why that proving key size is a real deployment cost, not just a large number |
 | `.github/workflows/ci.yml` | Real per-language test jobs, one per row above | Mirrors the commands actually run while building this |
 
-**Total: 98 automated tests across 5 languages/toolchains, all passing as
-of this commit** (69 from the original scaffold + 21 from `zk-poc/`'s two
-real Groth16 circuits + 8 from `core::proof::groth16_bn254`, which wires
-those same two circuits into `core/`'s `ProofSystem` trait). Toolchain versions that were pinned to work around
+**Total: 110 automated tests across 5 languages/toolchains, all passing as
+of this commit** (69 from the original scaffold + 33 from `zk-poc/`'s
+three real Groth16 circuits + 8 from `core::proof::groth16_bn254`, which
+wires two of those three circuits into `core/`'s `ProofSystem` trait).
+Toolchain versions that were pinned to work around
 sandbox/CI environment limits (documented so a real CI failure is easy to
 tell apart from an environment quirk): `ed25519-dalek =2.0.0`,
 `base64ct =1.6.0`, `zeroize =1.7.0` in `core/Cargo.toml` (newer releases of
@@ -68,9 +69,13 @@ use — this is the index, not the full explanation:
   own docs for exactly what is and isn't bound into the ZK statement (not
   every field of each rule's `Input` struct — e.g. `customer_id_hash` is
   outside the circuit, handled by the commitment layer instead, not the
-  proof). `gov-supply-chain-integrity` has no circuit yet (needs a
-  SHA-256 R1CS gadget, a harder problem than either circuit above), so it
-  still only has the placeholder. `core/src/proof/stark.rs` has no real
+  proof). `gov-supply-chain-integrity` now has a real circuit too
+  (`zk-poc/src/supply_chain_circuit.rs`, using a real SHA-256 R1CS
+  gadget — 318,668 constraints, ~64 MiB proving key, ~8.6s to prove; see
+  `BENCHMARKS.md`), but it is **not yet wired into `core/`'s
+  `ProofSystem` trait** the way the other two are — `core/src/proof/groth16.rs`'s
+  placeholder is still what `core/` itself falls back to for this rule.
+  `core/src/proof/stark.rs` has no real
   implementation for any rule yet.
 - **`core/src/commitment/pedersen.rs`** — falls back to the hash-based
   scheme internally. **No homomorphic property, no elliptic-curve discrete

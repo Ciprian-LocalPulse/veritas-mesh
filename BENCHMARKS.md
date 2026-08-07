@@ -139,9 +139,55 @@ section above about this not being a rigorous side-channel audit.
   scale with witness/constraint count — the healthcare circuit's ~48
   witness variables versus banking's 128 produces a proving key well
   under half the size).
-- `gov-supply-chain-integrity` still has no circuit (needs a SHA-256 R1CS
-  gadget, structurally different from both circuits above), so this
-  document covers two of the three rule modules named in `STATUS.md`.
+
+### `gov-supply-chain-integrity`
+
+```
+cargo run --package veritas-zk-poc --release --example demo_supply_chain
+```
+
+Circuit: audit-log hash-chain integrity, `MAX_ENTRIES=4` (see
+`zk-poc/src/supply_chain_circuit.rs`) — the first circuit in this crate
+that computes a real hash (SHA-256, via a real upstream R1CS gadget, not
+hand-rolled) inside the constraints, rather than only comparing or
+counting booleans.
+
+| Metric | Value |
+|---|---|
+| Constraints | **318,668** |
+| Public input variables | **514** |
+| Proving key size | **67,370,160 bytes (~64 MiB)** |
+| Verifying key size | 16,680 bytes |
+| Proof size | 128 bytes |
+| Trusted setup | ~20.9 s |
+| Proof generation (3 of 4 slots active) | ~8.6 s |
+| Verification | ~2.8 ms |
+
+Every number here except proof size runs two to three orders of
+magnitude above either other circuit — the real cost of SHA-256 inside
+R1CS, not a bug. Two figures are worth reading together: **~2,470x more
+constraints than the banking circuit, but proving time only ~955x**
+longer (9ms → 8.6s) and **verification barely moves** (3ms → 2.8ms) —
+Groth16 verification cost depends on the number of public inputs, not
+constraint count, and while 514 public inputs is a lot more than banking's
+2, it's still cheap to check against a paired elliptic curve. **The 67
+MiB proving key is the number that actually matters for deployability**:
+every institution proving compliance under this rule module has to store
+and load it, unlike the other two circuits' trivially-distributable
+29 KB/13 KB proving keys. `MAX_ENTRIES=4` was chosen specifically to keep
+this circuit's own trusted setup and proving time tractable inside this
+project's dev environment — a real deployment auditing more than 4
+events per period needs either a larger (and proportionally more
+expensive) `MAX_ENTRIES`, or a different circuit design entirely; see
+`supply_chain_circuit.rs`'s own module docs.
+
+`gov-supply-chain-integrity`'s circuit now exists for all three rule
+modules named in `STATUS.md` — this document covers all three. It is
+**not yet wired into `core/`'s `ProofSystem` trait**
+(`core::proof::groth16_bn254` only has `BankingGroth16Backend`/
+`HealthcareGroth16Backend` so far — see `zk-poc/README.md`'s "what's
+still needed" item 5), so there is no equivalent `core/`-wired benchmark
+for this circuit below, only the raw `zk-poc/` numbers above.
 
 ## Real cryptography, wired into `core/`: Groth16 via `ProofSystem`
 

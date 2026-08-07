@@ -37,6 +37,7 @@
 
 pub mod circuit;
 pub mod healthcare_circuit;
+pub mod supply_chain_circuit;
 
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey};
@@ -47,6 +48,7 @@ use rand_chacha::ChaCha20Rng;
 
 use circuit::TransactionThresholdCircuit;
 use healthcare_circuit::{EntryWitness, HealthcareDisclosureCircuit};
+use supply_chain_circuit::{EntryWitness as ChainEntryWitness, SupplyChainIntegrityCircuit};
 
 #[derive(Debug, thiserror::Error)]
 pub enum ZkPocError {
@@ -175,6 +177,98 @@ pub fn verify_healthcare(
 ) -> Result<bool, ZkPocError> {
     let pvk: PreparedVerifyingKey<Bn254> = ark_groth16::prepare_verifying_key(verifying_key);
     let public_inputs = [record_id, Fr::from(observed_access_count)];
+    Groth16::<Bn254>::verify_with_processed_vk(&pvk, &public_inputs, proof)
+        .map_err(ZkPocError::Verification)
+}
+
+// --- gov-supply-chain-integrity: AuditTrailIntegrityRule ---
+
+/// Converts a 32-byte digest to the 256 public-input field elements
+/// `DigestVar::new_input` actually allocates for it. This is NOT "32
+/// field elements, one per byte" (an assumption worth stating explicitly
+/// because it's the wrong one, and an easy one to make): `UInt8` stores
+/// its value as 8 individual `Boolean` bits
+/// (`ark_r1cs_std::bits::uint8::UInt8`), least-significant-bit first, and
+/// `AllocationMode::Input` allocates each of those 8 bits as its own
+/// public input. So one digest byte = 8 public inputs (each an Fr
+/// constrained to 0 or 1), not 1. Getting this wrong produces a
+/// public-input vector of the wrong *length*, which
+/// `Groth16::verify_with_processed_vk` would reject outright -- this was
+/// caught by writing and running the integration test below, not assumed
+/// correct from reading the gadget's allocation code alone.
+fn digest_to_field_elements(digest: &[u8; 32]) -> Vec<Fr> {
+    let mut out = Vec::with_capacity(256);
+    for byte in digest {
+        for bit_index in 0..8 {
+            out.push(Fr::from(((byte >> bit_index) & 1) as u64));
+        }
+    }
+    out
+}
+
+fn supply_chain_public_inputs(
+    genesis_hash: [u8; 32],
+    final_linkage_hash: [u8; 32],
+    active_count: u64,
+) -> Vec<Fr> {
+    let mut v = Vec::with_capacity(256 + 256 + 1);
+    v.extend(digest_to_field_elements(&genesis_hash));
+    v.extend(digest_to_field_elements(&final_linkage_hash));
+    v.push(Fr::from(active_count));
+    v
+}
+
+/// Runs Groth16 setup for `SupplyChainIntegrityCircuit`'s shape. Same
+/// non-ceremony caveat as `setup()`/`setup_healthcare()` applies in full.
+pub fn setup_supply_chain(seed: u64) -> Result<Keys, ZkPocError> {
+    let mut rng = ChaCha20Rng::seed_from_u64(seed);
+    let circuit = SupplyChainIntegrityCircuit::setup_shape([0u8; 32], [0u8; 32]);
+    let (proving_key, verifying_key) = Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng)
+        .map_err(ZkPocError::Setup)?;
+    Ok(Keys {
+        proving_key,
+        verifying_key,
+    })
+}
+
+/// Generates a real Groth16 proof that the audit-log hash chain runs
+/// unbroken from `genesis_hash` to `final_linkage_hash` across
+/// `active_count` entries, without revealing any individual
+/// `event_hash`. Returns `Err(ZkPocError::Proving(_))` if `entries`
+/// doesn't actually satisfy that claim -- same pattern as the other two
+/// circuits' `prove`/`prove_healthcare`. Panics (not an `Err`) if
+/// `entries.len() > MAX_ENTRIES` -- see
+/// `SupplyChainIntegrityCircuit::with_witness`'s docs.
+pub fn prove_supply_chain(
+    proving_key: &ProvingKey<Bn254>,
+    genesis_hash: [u8; 32],
+    final_linkage_hash: [u8; 32],
+    active_count: u64,
+    entries: &[ChainEntryWitness],
+    rng_seed: u64,
+) -> Result<Proof<Bn254>, ZkPocError> {
+    let mut rng = ChaCha20Rng::seed_from_u64(rng_seed);
+    let circuit = SupplyChainIntegrityCircuit::with_witness(
+        genesis_hash,
+        final_linkage_hash,
+        active_count,
+        entries,
+    );
+    Groth16::<Bn254>::prove(proving_key, circuit, &mut rng).map_err(ZkPocError::Proving)
+}
+
+/// Verifies a proof against the PUBLIC `genesis_hash`,
+/// `final_linkage_hash`, and `active_count`. Never sees any individual
+/// `event_hash` -- that's the entire point.
+pub fn verify_supply_chain(
+    verifying_key: &VerifyingKey<Bn254>,
+    genesis_hash: [u8; 32],
+    final_linkage_hash: [u8; 32],
+    active_count: u64,
+    proof: &Proof<Bn254>,
+) -> Result<bool, ZkPocError> {
+    let pvk: PreparedVerifyingKey<Bn254> = ark_groth16::prepare_verifying_key(verifying_key);
+    let public_inputs = supply_chain_public_inputs(genesis_hash, final_linkage_hash, active_count);
     Groth16::<Bn254>::verify_with_processed_vk(&pvk, &public_inputs, proof)
         .map_err(ZkPocError::Verification)
 }
@@ -354,5 +448,94 @@ mod tests {
             &proof
         )
         .unwrap());
+    }
+
+    // --- gov-supply-chain-integrity end-to-end tests ---
+    // Same rationale as the healthcare section above: real Groth16
+    // setup->prove->verify, not just constraint satisfaction (already
+    // covered by supply_chain_circuit.rs's own tests). SETUP_SEED here
+    // deliberately reuses the module-level constant -- a different seed
+    // per circuit isn't needed since each `setup_*` call is an
+    // independent circuit-specific ceremony regardless.
+
+    fn chain_entry(event_hash: [u8; 32]) -> ChainEntryWitness {
+        ChainEntryWitness {
+            event_hash,
+            is_active: true,
+        }
+    }
+
+    fn build_test_chain(
+        genesis: [u8; 32],
+        event_hashes: &[[u8; 32]],
+    ) -> (Vec<ChainEntryWitness>, [u8; 32]) {
+        let mut running = genesis;
+        let mut entries = Vec::with_capacity(event_hashes.len());
+        for (i, eh) in event_hashes.iter().enumerate() {
+            running = supply_chain_circuit::entry_linkage_hash(i as u64, eh, &running);
+            entries.push(chain_entry(*eh));
+        }
+        (entries, running)
+    }
+
+    #[test]
+    fn supply_chain_end_to_end_via_real_groth16() {
+        let keys = setup_supply_chain(SETUP_SEED).expect("setup should succeed");
+        let genesis = [3u8; 32];
+        let (entries, final_hash) = build_test_chain(genesis, &[[1u8; 32], [2u8; 32]]);
+
+        let proof = prove_supply_chain(
+            &keys.proving_key,
+            genesis,
+            final_hash,
+            2,
+            &entries,
+            PROVE_SEED,
+        )
+        .expect("proving should succeed for a genuinely intact chain");
+
+        let valid = verify_supply_chain(&keys.verifying_key, genesis, final_hash, 2, &proof)
+            .expect("verification should not error");
+        assert!(valid, "a correctly generated proof must verify as valid");
+    }
+
+    #[test]
+    fn supply_chain_tampered_event_cannot_be_proven() {
+        let keys = setup_supply_chain(SETUP_SEED).expect("setup should succeed");
+        let genesis = [3u8; 32];
+        let (mut entries, final_hash) = build_test_chain(genesis, &[[1u8; 32], [2u8; 32]]);
+        entries[0].event_hash = [0xEEu8; 32]; // tamper, but claim the OLD (now-wrong) final hash
+        let result =
+            prove_supply_chain(&keys.proving_key, genesis, final_hash, 2, &entries, PROVE_SEED);
+        assert!(
+            result.is_err(),
+            "proving must fail once a tampered event_hash no longer produces the claimed \
+             final_linkage_hash"
+        );
+    }
+
+    #[test]
+    fn supply_chain_proof_does_not_verify_against_a_different_genesis() {
+        let keys = setup_supply_chain(SETUP_SEED).expect("setup should succeed");
+        let genesis = [3u8; 32];
+        let (entries, final_hash) = build_test_chain(genesis, &[[1u8; 32]]);
+        let proof = prove_supply_chain(
+            &keys.proving_key,
+            genesis,
+            final_hash,
+            1,
+            &entries,
+            PROVE_SEED,
+        )
+        .unwrap();
+
+        let wrong_genesis = [9u8; 32];
+        let valid =
+            verify_supply_chain(&keys.verifying_key, wrong_genesis, final_hash, 1, &proof)
+                .unwrap();
+        assert!(
+            !valid,
+            "a proof anchored to one genesis_hash must not verify against a different one"
+        );
     }
 }
