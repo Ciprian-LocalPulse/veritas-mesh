@@ -172,12 +172,13 @@ after an inactive one. This circuit enforces that directly as a real
 constraint — checked in `supply_chain_circuit.rs`'s own
 `active_slot_after_inactive_slot_cannot_be_proven` test.
 
-## What's still needed to wire either circuit into `core/`
+## What's still needed to wire each circuit into `core/`
 
-**Items 1-2 below are done** — see `core/src/proof/groth16_bn254.rs`
-(`BankingGroth16Backend`, `HealthcareGroth16Backend`), 8 passing tests,
-and `BENCHMARKS.md` for real numbers through the actual `ProofSystem`
-trait. Kept here, marked done rather than deleted, so the list still
+**Items 1, 2, and 5 below are done** — see `core/src/proof/groth16_bn254.rs`
+(`BankingGroth16Backend`, `HealthcareGroth16Backend`,
+`SupplyChainGroth16Backend`), 14 passing tests, and `BENCHMARKS.md` for
+real numbers through the actual `ProofSystem` trait, for all three rule
+modules. Kept here, marked done rather than deleted, so the list still
 reads as a complete picture of what integration involves.
 
 1. ~~Add a `Proof::Groth16Bn254(Vec<u8>)` variant to `core::proof::Proof`~~
@@ -185,15 +186,17 @@ reads as a complete picture of what integration involves.
    bytes, per `core/src/proof/mod.rs`.
 2. ~~Replace `core::proof::groth16::Groth16Placeholder`'s `prove`/`verify`
    bodies~~ **Done differently than originally sketched here:** rather
-   than replacing the placeholder in place, two new backend structs
-   (`BankingGroth16Backend`, `HealthcareGroth16Backend`) were added in a
-   new file, `groth16_bn254.rs`, each rule-specific rather than dispatched
-   on `rule_id` inside one shared struct — see that module's own docs for
+   than replacing the placeholder in place, three new backend structs
+   (`BankingGroth16Backend`, `HealthcareGroth16Backend`,
+   `SupplyChainGroth16Backend`) were added in a new file,
+   `groth16_bn254.rs`, each rule-specific rather than dispatched on
+   `rule_id` inside one shared struct — see that module's own docs for
    why (the `ProofSystem` trait has no `rule_id` parameter, and each
    rule's circuit has an incompatible witness shape and its own key
-   pair). `groth16.rs`'s original placeholder is kept, not deleted — it's
-   still the only backend `gov-supply-chain-integrity` has, even in
-   placeholder form.
+   pair). `groth16.rs`'s original placeholder is kept, not deleted — no
+   rule module needs it as a fallback anymore now that all three have a
+   real backend, but it stays as documented reference material (what a
+   placeholder looked like) per its own module docs.
 3. Decide where each rule's `ProvingKey`/`VerifyingKey` (this crate's
    `Keys`) get stored/distributed — they need to be published once (see
    `proto/veritas/v1/rule_module.proto`'s `RuleModuleManifest.circuit_digest`,
@@ -210,7 +213,10 @@ reads as a complete picture of what integration involves.
    question entirely — this repo's setup functions as written must never
    be used outside tests. **Still open**, and now more urgent: `core/`'s
    own backend structs inherit this exact same "never use outside tests"
-   caveat by construction (they call straight into `setup`/`setup_healthcare`),
+   caveat by construction (they call straight into
+   `setup`/`setup_healthcare`/`setup_supply_chain`, the last of which is
+   the most urgent of the three by far — see item 5's note on
+   `SupplyChainGroth16Backend`'s ~24s/~64 MiB `setup()` cost),
    so it's no longer just this crate's problem in isolation.
 5. ~~Do the same circuit-design work for `gov-supply-chain-integrity`'s
    predicate~~ **Done** — see `src/supply_chain_circuit.rs`
@@ -219,10 +225,15 @@ reads as a complete picture of what integration involves.
    (constraint-level + real Groth16 end-to-end), real measured numbers in
    `BENCHMARKS.md` (318,668 constraints, 67 MiB proving key — see this
    circuit's own module docs for why that's a genuine deployment cost,
-   not just a large number). **Not yet wired into `core/`'s
-   `ProofSystem` trait** — items 1-2's pattern (a `SupplyChainGroth16Backend`
-   in `core/src/proof/groth16_bn254.rs`) hasn't been applied to this
-   circuit yet; still open, now that the circuit itself exists to wire.
+   not just a large number). **Also wired into `core/`'s `ProofSystem`
+   trait** — `SupplyChainGroth16Backend` in
+   `core/src/proof/groth16_bn254.rs`, same pattern as items 1-2. Its own
+   doc comment carries a real, load-bearing caveat the other two backends
+   don't: its `setup()` takes ~24s and holds a ~64 MiB key in memory, so
+   calling it outside tests or key-generation is a genuine deployment
+   mistake, not a style note — item 3 below (key
+   storage/distribution) matters considerably more for this rule module
+   than for the other two.
 6. `healthcare-hipaa`'s `MAX_ENTRIES=16` cap needs a documented policy:
    either a per-rule-module-version constant chosen from real access-
    pattern data (not yet done — flagged in `src/healthcare_circuit.rs`),

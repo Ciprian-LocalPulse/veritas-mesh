@@ -14,12 +14,13 @@ result.
 This repository has exactly three pieces of real, non-placeholder
 cryptography today (per [`STATUS.md`](STATUS.md)): the Ed25519 signature
 layer in `core/`, the hash-based commitment scheme in `core/`, and the
-Groth16 circuits in `zk-poc/` (two of them: `banking-basel-iii` and
-`healthcare-hipaa`). All three are benchmarked below — the Groth16
-circuits twice: once called directly (`zk-poc/`'s own numbers) and once
-through `core/`'s `ProofSystem` trait (`core::proof::groth16_bn254`,
-which wires them in for real, replacing the placeholder for these two
-rule modules), so the wrapping layer's overhead is visible rather than
+Groth16 circuits in `zk-poc/` (all three rule modules now: `banking-basel-iii`,
+`healthcare-hipaa`, and `gov-supply-chain-integrity`). All three are
+benchmarked below — the Groth16 circuits twice: once called directly
+(`zk-poc/`'s own numbers) and once through `core/`'s `ProofSystem` trait
+(`core::proof::groth16_bn254`, which wires them in for real, replacing
+the placeholder for all three rule modules), so the wrapping layer's
+overhead is visible rather than
 hidden.
 
 `core/src/proof/groth16.rs` and `stark.rs` are **not** benchmarked as if
@@ -182,12 +183,9 @@ expensive) `MAX_ENTRIES`, or a different circuit design entirely; see
 `supply_chain_circuit.rs`'s own module docs.
 
 `gov-supply-chain-integrity`'s circuit now exists for all three rule
-modules named in `STATUS.md` — this document covers all three. It is
-**not yet wired into `core/`'s `ProofSystem` trait**
-(`core::proof::groth16_bn254` only has `BankingGroth16Backend`/
-`HealthcareGroth16Backend` so far — see `zk-poc/README.md`'s "what's
-still needed" item 5), so there is no equivalent `core/`-wired benchmark
-for this circuit below, only the raw `zk-poc/` numbers above.
+modules named in `STATUS.md` — this document covers all three, both as
+raw `zk-poc/` circuits above and wired into `core/`'s `ProofSystem` trait
+below.
 
 ## Real cryptography, wired into `core/`: Groth16 via `ProofSystem`
 
@@ -195,29 +193,43 @@ for this circuit below, only the raw `zk-poc/` numbers above.
 cargo bench --package veritas-core --bench groth16_bn254
 ```
 
-`core/src/proof/groth16_bn254.rs` wires the two `zk-poc/` circuits above
+`core/src/proof/groth16_bn254.rs` wires all three `zk-poc/` circuits above
 into `core/`'s own `ProofSystem` trait (`BankingGroth16Backend`,
-`HealthcareGroth16Backend`), replacing the placeholder for these two rule
-modules. These numbers go through that wrapping layer (JSON witness/
-public-input encoding, proof serialize/deserialize) -- the gap versus the
-raw `zk-poc/` numbers above is that layer's real cost, not a different ZK
-computation:
+`HealthcareGroth16Backend`, `SupplyChainGroth16Backend`), replacing the
+placeholder for all three rule modules. These numbers go through that
+wrapping layer (JSON witness/public-input encoding, proof
+serialize/deserialize) -- the gap versus the raw `zk-poc/` numbers above
+is that layer's real cost, not a different ZK computation:
 
 | Operation | trials | mean | p50 | max |
 |---|---|---|---|---|
-| `BankingGroth16Backend::prove` | 30 | 9.1 ms | 9.0 ms | 11.2 ms |
-| `BankingGroth16Backend::verify` | 100 | 3.8 ms | 3.7 ms | 4.4 ms |
-| `HealthcareGroth16Backend::prove` | 30 | 5.9 ms | 5.9 ms | 6.2 ms |
-| `HealthcareGroth16Backend::verify` | 100 | 3.8 ms | 3.8 ms | 5.7 ms |
+| `BankingGroth16Backend::prove` | 30 | 7.9 ms | 7.9 ms | 8.9 ms |
+| `BankingGroth16Backend::verify` | 100 | 3.6 ms | 3.4 ms | 5.7 ms |
+| `HealthcareGroth16Backend::prove` | 30 | 5.7 ms | 5.6 ms | 8.2 ms |
+| `HealthcareGroth16Backend::verify` | 100 | 3.6 ms | 3.5 ms | 4.8 ms |
+| `SupplyChainGroth16Backend::setup` | 1 | 24.2 s | — | — |
+| `SupplyChainGroth16Backend::prove` | 3 | 10.0 s | 9.2 s | 12.5 s |
+| `SupplyChainGroth16Backend::verify` | 20 | 3.8 ms | 3.7 ms | 4.7 ms |
 
-Proving overhead versus the raw `zk-poc/` numbers is negligible (within
-this sandbox's run-to-run noise). Verification overhead is real but
-small: roughly +0.6-0.7ms on both circuits, from JSON-decoding the public
-input and `CanonicalDeserialize`-ing the proof bytes before calling into
-`zk-poc/`'s `verify`/`verify_healthcare` -- worth knowing if verification
-latency ever becomes a bottleneck (e.g. a Verifier checking many
-attestations per second), not worth optimizing before that's an actual
-measured problem.
+Banking/healthcare proving overhead versus the raw `zk-poc/` numbers is
+negligible (within this sandbox's run-to-run noise). Verification
+overhead is real but small across all three circuits: roughly
++0.6-1.0 ms, from JSON-decoding the public input and
+`CanonicalDeserialize`-ing the proof bytes before calling into `zk-poc/`'s
+`verify`/`verify_healthcare`/`verify_supply_chain` -- worth knowing if
+verification latency ever becomes a bottleneck (e.g. a Verifier checking
+many attestations per second), not worth optimizing before that's an
+actual measured problem.
+
+`SupplyChainGroth16Backend`'s numbers use a much smaller trial count (3
+proving trials, not 30) deliberately -- at ~10s per proof, 30 trials would
+have cost roughly five minutes just for this one row. Its `setup()`
+(24.2s, generating the ~64 MiB proving key measured in the `zk-poc/`
+section above) is included here specifically because
+`SupplyChainGroth16Backend`'s own doc comment warns this cost makes
+calling `setup()` outside tests/key-generation a real deployment mistake,
+not a style preference -- these are the numbers that claim is based on,
+not an assertion.
 
 ## Placeholder backend baseline (`core/`, NOT real proof generation)
 

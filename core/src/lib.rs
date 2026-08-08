@@ -11,23 +11,25 @@
 //! - `proof::groth16`, `proof::stark`: **architectural placeholders**,
 //!   still present for `stark` (no real backend exists for any rule
 //!   yet) and as a reference/comparison point for `groth16` (the
-//!   original placeholder). **Update:** `proof::groth16_bn254` now wires
-//!   in REAL Groth16-over-BN254 proving/verification (via `veritas-zk-poc`)
-//!   for `banking-basel-iii` and `healthcare-hipaa` — see that module's
-//!   docs for the two backend structs and exactly what is/isn't bound
-//!   into the ZK statement. `gov-supply-chain-integrity` has no circuit
-//!   yet and so no real backend here either.
+//!   original placeholder, now superseded for every rule). **Update:**
+//!   `proof::groth16_bn254` now wires in REAL Groth16-over-BN254
+//!   proving/verification (via `veritas-zk-poc`) for all three rule
+//!   modules — `banking-basel-iii`, `healthcare-hipaa`, and
+//!   `gov-supply-chain-integrity` — see that module's docs for the three
+//!   backend structs and exactly what is/isn't bound into the ZK
+//!   statement. The third backend
+//!   (`SupplyChainGroth16Backend`) has a real operational caveat the
+//!   other two don't (a ~64 MiB proving key), documented there.
 //! - `circuits::*`: real *predicate logic* (the compliance rule is
 //!   actually evaluated in the clear, via `Rule::check`) for all three
-//!   rules. Two of the three (`banking-basel-iii`, `healthcare-hipaa`)
-//!   now ALSO have a real zero-knowledge re-expression of that predicate
-//!   reachable through `proof::groth16_bn254` — the predicate is checked
+//!   rules, and now ALL THREE also have a real zero-knowledge
+//!   re-expression of that predicate reachable through
+//!   `proof::groth16_bn254` — the predicate is checked
 //!   in the clear by `Rule::check` AND, separately, can be proven in
 //!   zero-knowledge via the Groth16 backend; these are two different code
 //!   paths proving the same fact by construction (see
-//!   `zk-poc/src/circuit.rs` and `healthcare_circuit.rs`), not one
-//!   calling the other. `gov-supply-chain-integrity` still only has the
-//!   in-the-clear predicate.
+//!   `zk-poc/src/circuit.rs`, `healthcare_circuit.rs`, and
+//!   `supply_chain_circuit.rs`), not one calling the other.
 //!
 //! Do not deploy this crate to attest real regulatory compliance. It is a
 //! scaffold for the real cryptographic engineering work described in

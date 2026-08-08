@@ -14,12 +14,20 @@
 
 use std::time::{Duration, Instant};
 
-use veritas_core::proof::groth16_bn254::{BankingGroth16Backend, HealthcareGroth16Backend};
+use veritas_core::proof::groth16_bn254::{
+    BankingGroth16Backend, HealthcareGroth16Backend, SupplyChainGroth16Backend,
+};
 use veritas_core::proof::{Proof, ProofSystem};
 
 const SETUP_SEED: u64 = 42;
 const PROVE_TRIALS: u32 = 30;
 const VERIFY_TRIALS: u32 = 100;
+// gov-supply-chain-integrity's circuit costs ~8.6s per proof and its
+// setup() takes ~20s on its own (see SupplyChainGroth16Backend's own
+// docs) -- 30 proving trials there would take minutes just for this one
+// section, so it gets a deliberately smaller trial count.
+const CHAIN_PROVE_TRIALS: u32 = 3;
+const CHAIN_VERIFY_TRIALS: u32 = 20;
 
 fn stats(label: &str, mut samples: Vec<Duration>) {
     samples.sort();
@@ -98,4 +106,75 @@ fn main() {
     stats("healthcare: verify() via ProofSystem trait", hc_verify_times);
 
     println!("\nSame single-vCPU sandbox hardware caveat as the rest of BENCHMARKS.md applies.");
+
+    // --- gov-supply-chain-integrity ---
+    println!("\n=== gov-supply-chain-integrity: real backend, small trial count (see const doc) ===\n");
+
+    let t0 = Instant::now();
+    let supply_chain =
+        SupplyChainGroth16Backend::setup(SETUP_SEED).expect("setup should succeed");
+    println!("setup(): {:?} (includes generating a ~64 MiB proving key)", t0.elapsed());
+
+    let genesis = [4u8; 32];
+    let event_hash_0 = [1u8; 32];
+    let event_hash_1 = [2u8; 32];
+    let final_hash = veritas_zk_poc_final_hash(genesis, &[event_hash_0, event_hash_1]);
+    let sc_witness = format!(
+        r#"{{"entries":[{{"event_hash":{},"is_active":true}},{{"event_hash":{},"is_active":true}}]}}"#,
+        json_byte_array(&event_hash_0),
+        json_byte_array(&event_hash_1),
+    );
+    let sc_public = format!(
+        r#"{{"genesis_hash":{},"final_linkage_hash":{},"active_count":2}}"#,
+        json_byte_array(&genesis),
+        json_byte_array(&final_hash),
+    );
+
+    let mut sc_prove_times = Vec::with_capacity(CHAIN_PROVE_TRIALS as usize);
+    let mut sc_last_proof: Option<Proof> = None;
+    for _ in 0..CHAIN_PROVE_TRIALS {
+        let t0 = Instant::now();
+        let proof = supply_chain
+            .prove(sc_witness.as_bytes(), sc_public.as_bytes())
+            .expect("proving should succeed for a genuinely intact chain");
+        sc_prove_times.push(t0.elapsed());
+        sc_last_proof = Some(proof);
+    }
+    stats("supply-chain: prove() via ProofSystem trait", sc_prove_times);
+
+    let sc_proof = sc_last_proof.unwrap();
+    let mut sc_verify_times = Vec::with_capacity(CHAIN_VERIFY_TRIALS as usize);
+    for _ in 0..CHAIN_VERIFY_TRIALS {
+        let t0 = Instant::now();
+        supply_chain
+            .verify(&sc_proof, sc_public.as_bytes())
+            .expect("verification should succeed");
+        sc_verify_times.push(t0.elapsed());
+    }
+    stats("supply-chain: verify() via ProofSystem trait", sc_verify_times);
+
+    println!("\nSame hardware caveat applies. See BENCHMARKS.md for why this circuit's numbers");
+    println!("are two to three orders of magnitude larger than the other two circuits' --");
+    println!("real SHA-256-in-R1CS cost, not a bug.");
+}
+
+/// Small local helper mirroring `zk_poc::supply_chain_circuit::entry_linkage_hash`
+/// so this bench doesn't need `veritas-zk-poc` as a direct dependency just
+/// for one hash computation used to build a valid test chain.
+fn veritas_zk_poc_final_hash(genesis: [u8; 32], event_hashes: &[[u8; 32]]) -> [u8; 32] {
+    use sha2::{Digest, Sha256};
+    let mut running = genesis;
+    for (i, eh) in event_hashes.iter().enumerate() {
+        let mut hasher = Sha256::new();
+        hasher.update((i as u64).to_le_bytes());
+        hasher.update(eh);
+        hasher.update(running);
+        running = hasher.finalize().into();
+    }
+    running
+}
+
+fn json_byte_array(bytes: &[u8; 32]) -> String {
+    let parts: Vec<String> = bytes.iter().map(|b| b.to_string()).collect();
+    format!("[{}]", parts.join(","))
 }

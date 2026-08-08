@@ -1,9 +1,13 @@
-//! Real `ProofSystem` backends over `veritas-zk-poc`'s two working Groth16
-//! circuits (BN254, per RFC-0002's amended curve choice — see that RFC's
-//! "Curve choice for the SNARK track" for why BN254 and not the
-//! originally-proposed BLS12-381). Supersedes `groth16.rs`'s placeholder
-//! for `banking-basel-iii` and `healthcare-hipaa`; `gov-supply-chain-integrity`
-//! has no circuit yet (see `zk-poc/README.md`) and so has no backend here.
+//! Real `ProofSystem` backends over `veritas-zk-poc`'s three working
+//! Groth16 circuits (BN254, per RFC-0002's amended curve choice — see
+//! that RFC's "Curve choice for the SNARK track" for why BN254 and not
+//! the originally-proposed BLS12-381). Wires in `banking-basel-iii`,
+//! `healthcare-hipaa`, and `gov-supply-chain-integrity` — the third one
+//! added after the first two, and with a real, load-bearing operational
+//! caveat the other two don't have: see `SupplyChainGroth16Backend`'s own
+//! docs below for why its `~64 MiB` proving key means `setup()` should
+//! basically never be called at request time in real code, unlike the
+//! other two backends' much smaller (sub-30KB) keys.
 //!
 //! # Why one backend struct per rule, not one generic `Groth16Backend`
 //!
@@ -47,10 +51,15 @@ use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use serde::{Deserialize, Serialize};
 
 use veritas_zk_poc::healthcare_circuit::{EntryWitness, MAX_ENTRIES};
+use veritas_zk_poc::supply_chain_circuit::{
+    EntryWitness as ChainEntryWitness, MAX_ENTRIES as CHAIN_MAX_ENTRIES,
+};
 use veritas_zk_poc::{
-    prove as zk_prove_banking, prove_healthcare as zk_prove_healthcare, setup as zk_setup_banking,
-    setup_healthcare as zk_setup_healthcare, verify as zk_verify_banking,
-    verify_healthcare as zk_verify_healthcare, Keys, ZkPocError,
+    prove as zk_prove_banking, prove_healthcare as zk_prove_healthcare,
+    prove_supply_chain as zk_prove_supply_chain, setup as zk_setup_banking,
+    setup_healthcare as zk_setup_healthcare, setup_supply_chain as zk_setup_supply_chain,
+    verify as zk_verify_banking, verify_healthcare as zk_verify_healthcare,
+    verify_supply_chain as zk_verify_supply_chain, Keys, ZkPocError,
 };
 
 use super::{Proof, ProofSystem, ProofSystemId};
@@ -283,6 +292,133 @@ impl ProofSystem for HealthcareGroth16Backend {
     }
 }
 
+// ============================================================
+// gov-supply-chain-integrity
+// ============================================================
+
+/// One audit-log entry as carried over the wire. No `sequence_number`
+/// field, matching `zk-poc::supply_chain_circuit::EntryWitness` — see
+/// that module's docs for why position in the array (not a witnessed
+/// field) determines the sequence number the circuit uses.
+#[derive(Serialize, Deserialize, Clone, Copy)]
+struct ChainEntryWire {
+    event_hash: [u8; 32],
+    is_active: bool,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SupplyChainWitness {
+    /// May be shorter than `CHAIN_MAX_ENTRIES`; padded internally, and
+    /// (unlike the healthcare circuit) must be an in-order prefix of
+    /// active entries — see `supply_chain_circuit.rs`'s module docs.
+    entries: Vec<ChainEntryWire>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct SupplyChainPublicInput {
+    genesis_hash: [u8; 32],
+    final_linkage_hash: [u8; 32],
+    active_count: u64,
+}
+
+/// Real Groth16-over-BN254 backend for `gov-supply-chain-integrity`
+/// (`SupplyChainIntegrityCircuit` in `zk-poc/src/supply_chain_circuit.rs`).
+///
+/// **Operationally different from the other two backends in this file in
+/// one important way, not just a bigger version of the same thing:** its
+/// proving key is ~64 MiB (per `BENCHMARKS.md`), versus ~29 KB
+/// (`BankingGroth16Backend`) and ~13 KB (`HealthcareGroth16Backend`).
+/// `setup()` below calls straight into `zk_setup_supply_chain`, which
+/// regenerates that entire key from scratch — fine in a test (as this
+/// file's own tests do), but genuinely unsuitable to call per-request or
+/// even per-process-start in anything resembling real deployment: at
+/// minimum, expect `setup()` here to take on the order of tens of
+/// seconds by itself, on top of whatever it costs to hold a 64 MiB key in
+/// memory per loaded backend instance. `from_keys` exists precisely so a
+/// real caller loads a **published** key once (see `zk-poc/README.md`'s
+/// "what's still needed" item 3, still open) rather than ever calling
+/// `setup()` outside tests — true of the other two backends as well, but
+/// the cost of getting this wrong is far higher here.
+pub struct SupplyChainGroth16Backend {
+    keys: Keys,
+}
+
+impl SupplyChainGroth16Backend {
+    /// See struct docs: expect this to be slow (tens of seconds) and to
+    /// hold a large key in memory. Exists for tests and for generating a
+    /// key to publish, not for use on any request path.
+    pub fn setup(seed: u64) -> Result<Self> {
+        let keys = zk_setup_supply_chain(seed).map_err(zk_poc_err)?;
+        Ok(Self { keys })
+    }
+
+    pub fn from_keys(keys: Keys) -> Self {
+        Self { keys }
+    }
+}
+
+impl ProofSystem for SupplyChainGroth16Backend {
+    fn id(&self) -> ProofSystemId {
+        ProofSystemId::Groth16Bn254
+    }
+
+    fn prove(&self, witness: &[u8], public_input: &[u8]) -> Result<Proof> {
+        let w: SupplyChainWitness = serde_json::from_slice(witness)?;
+        let p: SupplyChainPublicInput = serde_json::from_slice(public_input)?;
+
+        // Same circuit-capacity-vs-false-claim distinction as
+        // HealthcareGroth16Backend::prove -- see that function's comment.
+        if w.entries.len() > CHAIN_MAX_ENTRIES {
+            return Err(VeritasError::InvalidProof(format!(
+                "groth16-bn254 (gov-supply-chain-integrity): {} entries exceeds this \
+                 circuit's MAX_ENTRIES={} -- this is a circuit-capacity limit, not a \
+                 false claim; see zk-poc/src/supply_chain_circuit.rs",
+                w.entries.len(),
+                CHAIN_MAX_ENTRIES
+            )));
+        }
+        let entries: Vec<ChainEntryWitness> = w
+            .entries
+            .iter()
+            .map(|e| ChainEntryWitness {
+                event_hash: e.event_hash,
+                is_active: e.is_active,
+            })
+            .collect();
+
+        let proof = zk_prove_supply_chain(
+            &self.keys.proving_key,
+            p.genesis_hash,
+            p.final_linkage_hash,
+            p.active_count,
+            &entries,
+            veritas_zk_poc::random_seed(),
+        )
+        .map_err(zk_poc_err)?;
+        serialize_proof(&proof)
+    }
+
+    fn verify(&self, proof: &Proof, public_input: &[u8]) -> Result<()> {
+        let p: SupplyChainPublicInput = serde_json::from_slice(public_input)?;
+        let ark_proof = deserialize_proof(proof)?;
+        let valid = zk_verify_supply_chain(
+            &self.keys.verifying_key,
+            p.genesis_hash,
+            p.final_linkage_hash,
+            p.active_count,
+            &ark_proof,
+        )
+        .map_err(zk_poc_err)?;
+        if valid {
+            Ok(())
+        } else {
+            Err(VeritasError::InvalidProof(
+                "groth16-bn254 (gov-supply-chain-integrity): proof did not verify".into(),
+            ))
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -449,5 +585,104 @@ mod tests {
         for backend in &backends {
             assert_eq!(backend.id(), ProofSystemId::Groth16Bn254);
         }
+    }
+
+    // --- gov-supply-chain-integrity ---
+    // Deliberately only 2 tests, each doing its own setup() call: this
+    // backend's setup() takes ~20s and its proving key is ~64 MiB (see
+    // SupplyChainGroth16Backend's own docs) -- every extra setup() call
+    // in this test module costs real wall-clock time, so assertions that
+    // don't strictly need their own fresh setup are grouped into these
+    // two tests rather than split out for their own sake.
+
+    fn chain_witness(entries: &[([u8; 32], bool)]) -> Vec<u8> {
+        serde_json::to_vec(&SupplyChainWitness {
+            entries: entries
+                .iter()
+                .map(|&(event_hash, is_active)| ChainEntryWire {
+                    event_hash,
+                    is_active,
+                })
+                .collect(),
+        })
+        .unwrap()
+    }
+
+    fn chain_public(genesis_hash: [u8; 32], final_linkage_hash: [u8; 32], count: u64) -> Vec<u8> {
+        serde_json::to_vec(&SupplyChainPublicInput {
+            genesis_hash,
+            final_linkage_hash,
+            active_count: count,
+        })
+        .unwrap()
+    }
+
+    #[test]
+    fn supply_chain_end_to_end_and_wrong_public_input_rejection() {
+        let backend: Box<dyn ProofSystem> =
+            Box::new(SupplyChainGroth16Backend::setup(SETUP_SEED).unwrap());
+        assert_eq!(backend.id(), ProofSystemId::Groth16Bn254);
+
+        let genesis = [4u8; 32];
+        let event_hashes = [[1u8; 32], [2u8; 32]];
+        let final_hash = event_hashes.iter().enumerate().fold(genesis, |prev, (i, eh)| {
+            veritas_zk_poc::supply_chain_circuit::entry_linkage_hash(i as u64, eh, &prev)
+        });
+        let entries: Vec<([u8; 32], bool)> = event_hashes.iter().map(|&h| (h, true)).collect();
+
+        let proof = backend
+            .prove(&chain_witness(&entries), &chain_public(genesis, final_hash, 2))
+            .expect("proving should succeed for a genuinely intact chain");
+        assert!(matches!(proof, Proof::Groth16Bn254(ref b) if b.len() == 128));
+
+        backend
+            .verify(&proof, &chain_public(genesis, final_hash, 2))
+            .expect("a correctly generated proof must verify");
+
+        // Reuse the same backend (no second setup) to check rejection
+        // against a different genesis_hash -- the vulnerability class
+        // this circuit's own module docs warn about, checked directly.
+        let wrong_genesis = [9u8; 32];
+        let result = backend.verify(&proof, &chain_public(wrong_genesis, final_hash, 2));
+        assert!(
+            result.is_err(),
+            "a proof for one genesis_hash must not verify against a different one"
+        );
+    }
+
+    #[test]
+    fn supply_chain_false_claim_and_capacity_limit_are_rejected() {
+        let backend = SupplyChainGroth16Backend::setup(SETUP_SEED).unwrap();
+        let genesis = [4u8; 32];
+
+        // Capacity limit: caught before ever calling into zk-poc, so this
+        // check is cheap regardless of the backend's own setup cost.
+        let too_many: Vec<([u8; 32], bool)> = (0..CHAIN_MAX_ENTRIES + 1)
+            .map(|i| ([i as u8; 32], true))
+            .collect();
+        let result = backend.prove(
+            &chain_witness(&too_many),
+            &chain_public(genesis, [0u8; 32], (CHAIN_MAX_ENTRIES + 1) as u64),
+        );
+        match result {
+            Err(VeritasError::InvalidProof(msg)) => assert!(msg.contains("MAX_ENTRIES")),
+            other => panic!("expected a clean InvalidProof error, got {other:?}"),
+        }
+
+        // False claim: a genuinely tampered chain that no longer produces
+        // the claimed final_linkage_hash. This fails fast (during R1CS
+        // witness allocation, before the expensive proving step -- see
+        // SupplyChainGroth16Backend's own comments), not after a full
+        // ~8.6s proving attempt.
+        let entries = vec![([1u8; 32], true), ([2u8; 32], true)];
+        let bogus_final_hash = [0xEEu8; 32]; // does not match any real chain from genesis
+        let result = backend.prove(
+            &chain_witness(&entries),
+            &chain_public(genesis, bogus_final_hash, 2),
+        );
+        assert!(
+            result.is_err(),
+            "proving must fail when the chain doesn't actually reach the claimed final hash"
+        );
     }
 }
