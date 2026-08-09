@@ -26,20 +26,22 @@ regulatory compliance to a real regulator.
 | `sdk/typescript/` | Transaction-threshold rule check; also runs the JSON vector fixture | `tsc --noEmit` clean; `vitest`: **10 tests pass** |
 | `proto/` | `.proto` schema for attestations, rule-module publishing, and a gRPC verifier service; a `buf.gen.yaml` codegen config | Schema-valid; **not yet run** — see below |
 | `zk-poc/` (Rust) | **Three real Groth16 zero-knowledge circuits** (BN254, via `arkworks`), one for each rule module: `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks); `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`); `gov-supply-chain-integrity`'s audit-log hash-chain integrity (real SHA-256 R1CS gadget, `MAX_ENTRIES=4` — see below for why so much smaller). Only the first two are wired into `core/`'s `ProofSystem` trait so far — see `zk-poc/README.md` | `cargo test --package veritas-zk-poc`: **33 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, a test confirming a healthcare proof doesn't verify against a different `record_id`, and one confirming a supply-chain proof doesn't verify against a different `genesis_hash`. `cargo run --example demo --release`, `--example demo_healthcare --release`, and `--example demo_supply_chain --release` print concrete metrics: banking is 129 constraints / 128-byte proofs / ~9ms prove / ~3ms verify; healthcare is 65 constraints / 128-byte proofs / ~5.6ms prove / ~3.1ms verify; **supply-chain is 318,668 constraints / 128-byte proofs / ~8.6s prove / ~2.8ms verify, with a ~64 MiB proving key** — see `BENCHMARKS.md` for the full statistical runs and why that proving key size is a real deployment cost, not just a large number |
-| `.github/workflows/ci.yml` | Real per-language test jobs, one per row above | Mirrors the commands actually run while building this |
+| `.github/workflows/ci.yml` | Real per-language test jobs, one per row above (Rust workspace, `mesh`/`sdk/go` via matrix, `sdk/python`+`analysis`, `sdk/typescript`, `dashboard`) | Every command in it was individually verified to pass in this repo's dev environment before the file was written (see `.github/workflows/ci.yml`'s own header comment) — **this line previously claimed this file existed when it did not; that was false and has been corrected.** Existing here means the workflow is committed, not that it has run on GitHub's own infrastructure yet — that only becomes true the first time it actually executes there |
 
-**Total: 116 automated tests across 5 languages/toolchains, all passing as
-of this commit** — measured directly per component rather than tracked as
-incremental deltas across many commits (the latter had started to drift
-by a couple of tests versus reality, not worth chasing down further):
-**45** in `core/` (`cargo test --package veritas-core`: 37 unit + 7
+**Total: 121 automated tests across 5 languages/toolchains, all passing as
+of this commit** — measured directly per component, all individually
+re-verified while building `.github/workflows/ci.yml` (not just carried
+forward from an earlier count): **45** in `core/`
+(`cargo test --package veritas-core`: 37 unit + 7
 `negative_cases` + 1 `roundtrip`, of which `proof::groth16_bn254` accounts
 for 12 — 5 `banking-basel-iii`, 5 `healthcare-hipaa`, 2
 `gov-supply-chain-integrity` — and `attest` accounts for 4, one per rule
 plus a false-claim rejection test), **33** in `zk-poc/`
-(`cargo test --package veritas-zk-poc`), **38** across the other four
-language ecosystems (Go/`mesh`, Python/`analysis`, TypeScript/`dashboard`
-and `sdk/typescript`) — unchanged by any of this session's Rust-focused
+(`cargo test --package veritas-zk-poc`), **2** in `sdk/rust`, **9** in Go
+(`go test ./...`: 3 in `mesh`, 6 in `sdk/go`), **19** in Python
+(`pytest`: 9 in `sdk/python`, 10 in `analysis`), **13** in TypeScript
+(`npm test`: 3 in `dashboard`, 10 in `sdk/typescript`) — unchanged by any
+of this session's Rust-focused
 work. Toolchain versions that were pinned to work around
 sandbox/CI environment limits (documented so a real CI failure is easy to
 tell apart from an environment quirk): `ed25519-dalek =2.0.0`,

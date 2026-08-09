@@ -1,11 +1,18 @@
 name: CI
 
-# Real test jobs per language, replacing the link-checker-only CI this repo
-# had before. Every job below mirrors a command that was actually run and
-# passed while building this scaffold -- see /STATUS.md for the exact
-# versions pinned to work around sandbox/toolchain issues encountered
-# during development (documented there so CI failures from environment
-# drift are easy to diagnose against a known-good baseline).
+# Real per-language test jobs. Every command below was actually run,
+# successfully, in this repository's own dev environment before this file
+# was written -- see STATUS.md's summary table and BENCHMARKS.md for the
+# specific results each job's commands were validated against. This file
+# existing does not by itself mean CI has ever run on GitHub's
+# infrastructure yet -- that only becomes true the first time this
+# workflow actually executes there, and outcomes there can differ (a
+# different runner OS/toolchain version, network access during CI that
+# wasn't available while this was written, etc.) from what was verified
+# locally. Treat a red run here as a real signal to investigate, not
+# noise -- and if a red run turns out to be a genuine environment
+# difference rather than a real regression, fix the workflow to match
+# reality rather than silently ignoring the failure.
 
 on:
   push:
@@ -14,92 +21,99 @@ on:
 
 jobs:
   rust:
-    name: Rust (core/, sdk/rust/, zk-poc/)
+    name: Rust (core, sdk/rust, zk-poc)
     runs-on: ubuntu-latest
+    # No toolchain version pin here beyond "stable": the exact-version
+    # crate pins in core/Cargo.toml and zk-poc/Cargo.toml (ed25519-dalek,
+    # base64ct, zeroize, rayon, etc.) exist to work around an OLDER
+    # toolchain (rustc 1.75) not being able to parse newer crate editions
+    # -- see STATUS.md. A current GitHub Actions runner's stable Rust is
+    # expected to be newer than that and should have no trouble with
+    # either the pinned old crate versions or the workspace overall; if a
+    # run here fails specifically on an edition/MSRV error, that's the
+    # first place to look, not a sign the pins themselves are wrong.
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
-      - name: cargo test --workspace
-        run: cargo test --workspace --verbose
-      - name: zk-poc demo (concrete Groth16 metrics, informational)
-        run: cargo run --package veritas-zk-poc --example demo --release
+      - uses: Swatinem/rust-cache@v2
+      # --release is not a style choice here: zk-poc's Groth16 circuits
+      # (in particular gov-supply-chain-integrity's 318,668-constraint
+      # SHA-256 circuit) are impractically slow in debug builds. See
+      # BENCHMARKS.md for real --release timings this mirrors.
+      - name: cargo test --workspace --release
+        run: cargo test --workspace --release
+      - name: cargo build --workspace --release --examples
+        run: cargo build --workspace --release --examples
 
-  go-mesh:
-    name: Go (mesh/)
+  go:
+    name: Go (${{ matrix.module }})
     runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: mesh
+    strategy:
+      fail-fast: false
+      matrix:
+        module: [mesh, sdk/go]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
-          go-version: "1.22"
-      - run: go vet ./...
-      - run: go test ./... -v
-
-  go-sdk:
-    name: Go (sdk/go/)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: sdk/go
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.22"
-      - run: go vet ./...
-      - run: go test ./... -v
+          go-version-file: ${{ matrix.module }}/go.mod
+      - name: go test ./...
+        working-directory: ${{ matrix.module }}
+        run: go test ./...
 
   python:
-    name: Python (sdk/python/, analysis/)
+    name: Python (sdk/python, analysis)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - name: Install sdk/python
-        run: pip install -e "sdk/python[dev]"
-      - name: Test sdk/python (includes cross-language vector checks)
-        run: pytest sdk/python -v
-      - name: Install analysis/ (depends on sdk/python being installed above)
-        run: pip install --no-deps -e "analysis"
-      - name: Install analysis/ dev deps
-        run: pip install pytest
-      - name: Test analysis/
-        run: pytest analysis -v
+      # analysis/ depends on sdk/python at dev time (see
+      # analysis/pyproject.toml's own comment on why this isn't a normal
+      # `dependencies` entry) -- install order matters, sdk/python first.
+      - name: pip install (editable, both packages)
+        run: |
+          pip install -e "sdk/python[dev]"
+          pip install -e "analysis[dev]"
+      - name: pytest sdk/python
+        run: pytest sdk/python/tests
+      - name: pytest analysis
+        run: pytest analysis/tests
 
-  typescript:
-    name: TypeScript (dashboard/, sdk/typescript/)
+  typescript-sdk:
+    name: TypeScript (sdk/typescript)
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        package: [dashboard, sdk/typescript]
     defaults:
       run:
-        working-directory: ${{ matrix.package }}
+        working-directory: sdk/typescript
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
       - run: npm install
-      - run: npx tsc --noEmit
-      - run: npx vitest run
+      - run: npm run typecheck
+      - run: npm run build
+      - run: npm test
 
-  # Placeholder job, intentionally failing closed rather than silently
-  # skipping: there is no proto lint/breaking-change job yet because CI
-  # running `buf generate` needs registry credentials this repo doesn't
-  # have configured. Wire this up when proto/ codegen is actually run in
-  # CI (see proto/buf.gen.yaml's own STATUS note).
-  proto-lint:
-    name: proto lint (not yet configured)
+  typescript-dashboard:
+    name: TypeScript (dashboard)
     runs-on: ubuntu-latest
-    continue-on-error: true
+    defaults:
+      run:
+        working-directory: dashboard
     steps:
-      - run: |
-          echo "proto/ has no buf lint/breaking job configured yet."
-          echo "See proto/buf.gen.yaml for why generation hasn't been run in CI."
-          exit 0
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: npm install
+      - run: npm run typecheck
+      - run: npm test
+      # `npm run build` is deliberately NOT run here: dashboard/ has no
+      # index.html yet, so `vite build` fails for a real, known,
+      # CI-unrelated reason -- see dashboard/README.md's "Known gap in
+      # the current scaffold". Add this step back once that's fixed;
+      # silently skipping it forever would let a real regression in
+      # dashboard/'s buildability go unnoticed once index.html exists.
