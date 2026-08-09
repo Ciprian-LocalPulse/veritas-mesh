@@ -105,14 +105,14 @@ fn deserialize_proof(proof: &Proof) -> Result<ArkGroth16Proof<Bn254>> {
 /// Deliberately narrower than `TransactionThresholdInput` -- see module
 /// docs for why `customer_id_hash` isn't here.
 #[derive(Serialize, Deserialize)]
-struct BankingWitness {
-    transaction_amount_minor: u64,
+pub(crate) struct BankingWitness {
+    pub(crate) transaction_amount_minor: u64,
 }
 
 /// Wire encoding for `BankingGroth16Backend`'s `public_input` bytes.
 #[derive(Serialize, Deserialize)]
-struct BankingPublicInput {
-    risk_adjusted_threshold_minor: u64,
+pub(crate) struct BankingPublicInput {
+    pub(crate) risk_adjusted_threshold_minor: u64,
 }
 
 /// Real Groth16-over-BN254 backend for `banking-basel-iii`
@@ -180,27 +180,27 @@ impl ProofSystem for BankingGroth16Backend {
 /// `DisclosureLogEntry` -- see module docs for why `accessor_id_hash`/
 /// `timestamp_unix` aren't here.
 #[derive(Serialize, Deserialize, Clone, Copy)]
-struct HealthcareEntryWire {
-    is_active: bool,
-    authorized: bool,
+pub(crate) struct HealthcareEntryWire {
+    pub(crate) is_active: bool,
+    pub(crate) authorized: bool,
 }
 
 #[derive(Serialize, Deserialize)]
-struct HealthcareWitness {
+pub(crate) struct HealthcareWitness {
     /// May be shorter than `MAX_ENTRIES`; padded internally. See
     /// `prove()` below for what happens if it's longer.
-    entries: Vec<HealthcareEntryWire>,
+    pub(crate) entries: Vec<HealthcareEntryWire>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct HealthcarePublicInput {
+pub(crate) struct HealthcarePublicInput {
     /// See module docs / `zk-poc/src/healthcare_circuit.rs`: this is
     /// reduced into the BN254 scalar field via
     /// `Fr::from_le_bytes_mod_order`, a documented simplification of a
     /// real 32-byte hash into a single field element, not a general
     /// collision-resistant hash-to-field construction.
-    record_id_hash: [u8; 32],
-    observed_access_count: u64,
+    pub(crate) record_id_hash: [u8; 32],
+    pub(crate) observed_access_count: u64,
 }
 
 fn record_id_to_field(hash: &[u8; 32]) -> Fr {
@@ -301,24 +301,24 @@ impl ProofSystem for HealthcareGroth16Backend {
 /// that module's docs for why position in the array (not a witnessed
 /// field) determines the sequence number the circuit uses.
 #[derive(Serialize, Deserialize, Clone, Copy)]
-struct ChainEntryWire {
-    event_hash: [u8; 32],
-    is_active: bool,
+pub(crate) struct ChainEntryWire {
+    pub(crate) event_hash: [u8; 32],
+    pub(crate) is_active: bool,
 }
 
 #[derive(Serialize, Deserialize)]
-struct SupplyChainWitness {
+pub(crate) struct SupplyChainWitness {
     /// May be shorter than `CHAIN_MAX_ENTRIES`; padded internally, and
     /// (unlike the healthcare circuit) must be an in-order prefix of
     /// active entries — see `supply_chain_circuit.rs`'s module docs.
-    entries: Vec<ChainEntryWire>,
+    pub(crate) entries: Vec<ChainEntryWire>,
 }
 
 #[derive(Serialize, Deserialize)]
-struct SupplyChainPublicInput {
-    genesis_hash: [u8; 32],
-    final_linkage_hash: [u8; 32],
-    active_count: u64,
+pub(crate) struct SupplyChainPublicInput {
+    pub(crate) genesis_hash: [u8; 32],
+    pub(crate) final_linkage_hash: [u8; 32],
+    pub(crate) active_count: u64,
 }
 
 /// Real Groth16-over-BN254 backend for `gov-supply-chain-integrity`

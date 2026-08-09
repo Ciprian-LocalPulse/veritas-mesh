@@ -242,19 +242,28 @@ reads as a complete picture of what integration involves.
    also enforced as a clean `Result::Err` (not a panic) at the
    `core::proof::groth16_bn254` boundary when exceeded, per that module's
    `HealthcareGroth16Backend::prove`.
-7. **Found while wiring items 1-2, confirmed again by circuit 3:** none
+7. **Found while wiring items 1-2, confirmed again by circuit 3.** None
    of the three circuits prove anything about fields outside their own
    statement (e.g. `TransactionThresholdInput::customer_id_hash`,
-   `DisclosureLogEntry::accessor_id_hash`/`timestamp_unix`, and now
+   `DisclosureLogEntry::accessor_id_hash`/`timestamp_unix`, and
    `AuditTrailInput::period_start_unix`/`period_end_unix` — see
    `supply_chain_circuit.rs`'s own module docs for why those two stay
    out) — those still need RFC-0003's commitment scheme applied to the
    FULL `Rule::canonical_bytes` output, entirely separately from the ZK
-   proof over the subset of fields each circuit actually constrains. No
-   orchestration layer combining "commit to everything, prove the
-   circuit-relevant subset in ZK" into one attestation-building call
-   exists yet — see `core/src/proof/groth16_bn254.rs`'s module docs for
-   the full reasoning behind why this split exists and matters.
+   proof over the subset of fields each circuit actually constrains.
+   **The orchestration layer this item used to say didn't exist now
+   does** — see `core/src/attest.rs`
+   (`attest_banking`/`attest_healthcare`/`attest_supply_chain`), 4
+   passing tests covering all three rule modules end-to-end (predicate
+   check → commitment → ZK proof → signature). Its own module docs are
+   explicit about a real, NOT-yet-closed gap this raised: nothing binds
+   the commitment and the ZK proof to provably the same input beyond the
+   caller passing the same value to both steps in one function call — a
+   malicious implementation of this same pattern could commit to one
+   input and prove a different one's statement, and neither this crate
+   nor `zk-poc/` currently prevents that at the protocol level (it would
+   need the commitment bound into the circuit's own public inputs, which
+   no circuit here does).
 
 ## Toolchain notes
 

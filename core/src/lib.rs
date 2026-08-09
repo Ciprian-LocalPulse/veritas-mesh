@@ -35,6 +35,7 @@
 //! scaffold for the real cryptographic engineering work described in
 //! RFC-0001/0002/0003.
 
+pub mod attest;
 pub mod attestation;
 pub mod circuits;
 pub mod commitment;
