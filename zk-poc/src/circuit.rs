@@ -87,7 +87,15 @@ impl TransactionThresholdCircuit {
     /// reconstructed from them (with the reconstruction constrained equal
     /// to the sum -- see module docs for why this is the actual range
     /// check, not just decoration).
-    fn allocate_range_checked(
+    /// `pub(crate)` (not private) specifically so
+    /// `bound_circuit.rs`'s `BankingBoundCircuit` can reuse the exact
+    /// same range-check logic and, critically, the exact same
+    /// LSB-first bit ordering — that ordering is what lets the bound
+    /// circuit regroup these bits directly into `UInt8` bytes for its
+    /// SHA-256 preimage with zero additional constraints (`UInt8` uses
+    /// the identical LSB-first-per-byte convention internally). See
+    /// `bound_circuit.rs`'s own module docs for why that reuse matters.
+    pub(crate) fn allocate_range_checked(
         cs: ConstraintSystemRef<Fr>,
         value: Option<u64>,
     ) -> Result<(FpVar<Fr>, Vec<Boolean<Fr>>), SynthesisError> {

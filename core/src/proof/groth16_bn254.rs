@@ -1,13 +1,10 @@
-//! Real `ProofSystem` backends over `veritas-zk-poc`'s three working
-//! Groth16 circuits (BN254, per RFC-0002's amended curve choice — see
-//! that RFC's "Curve choice for the SNARK track" for why BN254 and not
-//! the originally-proposed BLS12-381). Wires in `banking-basel-iii`,
-//! `healthcare-hipaa`, and `gov-supply-chain-integrity` — the third one
-//! added after the first two, and with a real, load-bearing operational
-//! caveat the other two don't have: see `SupplyChainGroth16Backend`'s own
-//! docs below for why its `~64 MiB` proving key means `setup()` should
-//! basically never be called at request time in real code, unlike the
-//! other two backends' much smaller (sub-30KB) keys.
+//! Real `ProofSystem` backends over `veritas-zk-poc`'s working Groth16
+//! circuits (BN254, per RFC-0002's amended curve choice — see that RFC's
+//! "Curve choice for the SNARK track" for why BN254 and not the
+//! originally-proposed BLS12-381). Wires in `banking-basel-iii` (both an
+//! unbound and a commitment-bound variant — see
+//! `BoundBankingGroth16Backend`'s own docs for why both exist),
+//! `healthcare-hipaa`, and `gov-supply-chain-integrity`.
 //!
 //! # Why one backend struct per rule, not one generic `Groth16Backend`
 //!
@@ -167,6 +164,99 @@ impl ProofSystem for BankingGroth16Backend {
         } else {
             Err(VeritasError::InvalidProof(
                 "groth16-bn254 (banking-basel-iii): proof did not verify".into(),
+            ))
+        }
+    }
+}
+
+// ============================================================
+// banking-basel-iii, commitment-bound variant
+// ============================================================
+// Closes the gap core::attest's own module docs describe: nothing binds
+// the commitment and the ZK proof to provably the same input. See
+// zk-poc/src/bound_circuit.rs for the full design and cost analysis.
+
+/// Wire encoding for `BoundBankingGroth16Backend::prove`'s `witness`
+/// bytes. Unlike `BankingWitness` above, this carries every field
+/// `BankingBoundCircuit` needs to recompute the commitment in-circuit --
+/// `customer_id_hash` and `salt`, neither of which the unbound circuit's
+/// witness includes.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct BoundBankingWitness {
+    pub(crate) transaction_amount_minor: u64,
+    pub(crate) customer_id_hash: [u8; 32],
+    pub(crate) salt: [u8; 32],
+}
+
+/// Wire encoding for `BoundBankingGroth16Backend`'s `public_input`
+/// bytes. `commitment` replaces nothing here -- it's an ADDITION to
+/// `BankingPublicInput`'s `risk_adjusted_threshold_minor`, not a
+/// replacement for it; both are checked.
+#[derive(Serialize, Deserialize)]
+pub(crate) struct BoundBankingPublicInput {
+    pub(crate) commitment: [u8; 32],
+    pub(crate) risk_adjusted_threshold_minor: u64,
+}
+
+/// Real Groth16-over-BN254 backend for the commitment-bound
+/// `banking-basel-iii` circuit (`BankingBoundCircuit` in
+/// `zk-poc/src/bound_circuit.rs`). This is what `core::attest::attest_banking`
+/// actually uses -- `BankingGroth16Backend` above remains available
+/// (unbound, cheaper: 129 constraints vs. ~81,600, ~9ms vs. ~2.1s to
+/// prove — see `BENCHMARKS.md`) for any caller that has its own way of
+/// binding a proof to a specific commitment, or that genuinely doesn't
+/// need the binding.
+pub struct BoundBankingGroth16Backend {
+    keys: Keys,
+}
+
+impl BoundBankingGroth16Backend {
+    pub fn setup(seed: u64) -> Result<Self> {
+        let keys = veritas_zk_poc::setup_banking_bound(seed).map_err(zk_poc_err)?;
+        Ok(Self { keys })
+    }
+
+    pub fn from_keys(keys: Keys) -> Self {
+        Self { keys }
+    }
+}
+
+impl ProofSystem for BoundBankingGroth16Backend {
+    fn id(&self) -> ProofSystemId {
+        ProofSystemId::Groth16Bn254
+    }
+
+    fn prove(&self, witness: &[u8], public_input: &[u8]) -> Result<Proof> {
+        let w: BoundBankingWitness = serde_json::from_slice(witness)?;
+        let p: BoundBankingPublicInput = serde_json::from_slice(public_input)?;
+        let proof = veritas_zk_poc::prove_banking_bound(
+            &self.keys.proving_key,
+            p.commitment,
+            p.risk_adjusted_threshold_minor,
+            w.transaction_amount_minor,
+            w.customer_id_hash,
+            w.salt,
+            veritas_zk_poc::random_seed(),
+        )
+        .map_err(zk_poc_err)?;
+        serialize_proof(&proof)
+    }
+
+    fn verify(&self, proof: &Proof, public_input: &[u8]) -> Result<()> {
+        let p: BoundBankingPublicInput = serde_json::from_slice(public_input)?;
+        let ark_proof = deserialize_proof(proof)?;
+        let valid = veritas_zk_poc::verify_banking_bound(
+            &self.keys.verifying_key,
+            p.commitment,
+            p.risk_adjusted_threshold_minor,
+            &ark_proof,
+        )
+        .map_err(zk_poc_err)?;
+        if valid {
+            Ok(())
+        } else {
+            Err(VeritasError::InvalidProof(
+                "groth16-bn254 (banking-basel-iii, bound): proof did not verify".into(),
             ))
         }
     }

@@ -35,6 +35,7 @@
 //!   which neither circuit here uses, versus this crate's two circuits so
 //!   far, which only need boolean/arithmetic gadgets.
 
+pub mod bound_circuit;
 pub mod circuit;
 pub mod healthcare_circuit;
 pub mod supply_chain_circuit;
@@ -46,6 +47,7 @@ use ark_snark::SNARK;
 use ark_std::rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
 
+use bound_circuit::BankingBoundCircuit;
 use circuit::TransactionThresholdCircuit;
 use healthcare_circuit::{EntryWitness, HealthcareDisclosureCircuit};
 use supply_chain_circuit::{EntryWitness as ChainEntryWitness, SupplyChainIntegrityCircuit};
@@ -269,6 +271,81 @@ pub fn verify_supply_chain(
 ) -> Result<bool, ZkPocError> {
     let pvk: PreparedVerifyingKey<Bn254> = ark_groth16::prepare_verifying_key(verifying_key);
     let public_inputs = supply_chain_public_inputs(genesis_hash, final_linkage_hash, active_count);
+    Groth16::<Bn254>::verify_with_processed_vk(&pvk, &public_inputs, proof)
+        .map_err(ZkPocError::Verification)
+}
+
+// --- banking-basel-iii, commitment-bound variant ---
+// Closes the gap core::attest's own module docs describe: nothing binds
+// the commitment and the ZK proof to provably the same input. See
+// bound_circuit.rs for the full design.
+
+/// Little-endian bit expansion of `value` as `Fr` 0/1 elements -- matches
+/// `BankingBoundCircuit`'s own `allocate_public_range_checked`, which
+/// allocates `threshold` as `RANGE_BITS` (64) individual public-input
+/// bits, not one field element.
+fn u64_to_bit_field_elements(value: u64) -> Vec<Fr> {
+    (0..circuit::RANGE_BITS)
+        .map(|i| Fr::from(((value >> i) & 1) as u64))
+        .collect()
+}
+
+fn banking_bound_public_inputs(commitment: [u8; 32], threshold: u64) -> Vec<Fr> {
+    let mut v = Vec::with_capacity(256 + 64);
+    v.extend(digest_to_field_elements(&commitment));
+    v.extend(u64_to_bit_field_elements(threshold));
+    v
+}
+
+/// Runs Groth16 setup for `BankingBoundCircuit`'s shape. Same
+/// non-ceremony caveat as `setup()` applies in full.
+pub fn setup_banking_bound(seed: u64) -> Result<Keys, ZkPocError> {
+    let mut rng = ChaCha20Rng::seed_from_u64(seed);
+    let circuit = BankingBoundCircuit::setup_shape(0);
+    let (proving_key, verifying_key) = Groth16::<Bn254>::circuit_specific_setup(circuit, &mut rng)
+        .map_err(ZkPocError::Setup)?;
+    Ok(Keys {
+        proving_key,
+        verifying_key,
+    })
+}
+
+/// Generates a real Groth16 proof that BOTH `amount <= threshold` AND
+/// `commitment == SHA256(salt || amount_LE(8) || threshold_LE(8) ||
+/// customer_id_hash(32))`. Returns `Err(ZkPocError::Proving(_))` if
+/// either half of that conjunction doesn't hold -- see
+/// `bound_circuit.rs`'s own `claim_holds` pre-check for why this covers
+/// both failure modes, not just the range check.
+pub fn prove_banking_bound(
+    proving_key: &ProvingKey<Bn254>,
+    commitment: [u8; 32],
+    threshold: u64,
+    amount: u64,
+    customer_id_hash: [u8; 32],
+    salt: [u8; 32],
+    rng_seed: u64,
+) -> Result<Proof<Bn254>, ZkPocError> {
+    let mut rng = ChaCha20Rng::seed_from_u64(rng_seed);
+    let circuit = BankingBoundCircuit::with_witness(
+        commitment,
+        threshold,
+        amount,
+        customer_id_hash,
+        salt,
+    );
+    Groth16::<Bn254>::prove(proving_key, circuit, &mut rng).map_err(ZkPocError::Proving)
+}
+
+/// Verifies a proof against the PUBLIC `commitment` and `threshold`.
+/// Never sees `amount`, `customer_id_hash`, or `salt`.
+pub fn verify_banking_bound(
+    verifying_key: &VerifyingKey<Bn254>,
+    commitment: [u8; 32],
+    threshold: u64,
+    proof: &Proof<Bn254>,
+) -> Result<bool, ZkPocError> {
+    let pvk: PreparedVerifyingKey<Bn254> = ark_groth16::prepare_verifying_key(verifying_key);
+    let public_inputs = banking_bound_public_inputs(commitment, threshold);
     Groth16::<Bn254>::verify_with_processed_vk(&pvk, &public_inputs, proof)
         .map_err(ZkPocError::Verification)
 }
@@ -536,6 +613,99 @@ mod tests {
         assert!(
             !valid,
             "a proof anchored to one genesis_hash must not verify against a different one"
+        );
+    }
+
+    // --- banking-basel-iii, commitment-bound end-to-end tests ---
+
+    fn real_banking_commitment(
+        salt: &[u8; 32],
+        amount: u64,
+        threshold: u64,
+        cid: &[u8; 32],
+    ) -> [u8; 32] {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(salt);
+        hasher.update(amount.to_le_bytes());
+        hasher.update(threshold.to_le_bytes());
+        hasher.update(cid);
+        hasher.finalize().into()
+    }
+
+    #[test]
+    fn banking_bound_end_to_end_via_real_groth16() {
+        let keys = setup_banking_bound(SETUP_SEED).expect("setup should succeed");
+        let salt = [3u8; 32];
+        let cid = [4u8; 32];
+        let (amount, threshold) = (50_000u64, 100_000u64);
+        let commitment = real_banking_commitment(&salt, amount, threshold, &cid);
+
+        let proof = prove_banking_bound(
+            &keys.proving_key,
+            commitment,
+            threshold,
+            amount,
+            cid,
+            salt,
+            PROVE_SEED,
+        )
+        .expect("proving should succeed for a genuinely matching commitment and predicate");
+
+        let valid = verify_banking_bound(&keys.verifying_key, commitment, threshold, &proof)
+            .expect("verification should not error");
+        assert!(valid, "a correctly generated proof must verify as valid");
+    }
+
+    #[test]
+    fn banking_bound_mismatched_commitment_cannot_be_proven() {
+        let keys = setup_banking_bound(SETUP_SEED).expect("setup should succeed");
+        let salt = [3u8; 32];
+        let cid = [4u8; 32];
+        let (amount, threshold) = (50_000u64, 100_000u64);
+        let wrong_commitment = [0xAAu8; 32];
+
+        let result = prove_banking_bound(
+            &keys.proving_key,
+            wrong_commitment,
+            threshold,
+            amount,
+            cid,
+            salt,
+            PROVE_SEED,
+        );
+        assert!(
+            result.is_err(),
+            "proving must fail when the claimed commitment doesn't match the real input"
+        );
+    }
+
+    #[test]
+    fn banking_bound_proof_does_not_verify_against_a_different_commitment() {
+        let keys = setup_banking_bound(SETUP_SEED).expect("setup should succeed");
+        let salt = [3u8; 32];
+        let cid = [4u8; 32];
+        let (amount, threshold) = (50_000u64, 100_000u64);
+        let commitment = real_banking_commitment(&salt, amount, threshold, &cid);
+
+        let proof = prove_banking_bound(
+            &keys.proving_key,
+            commitment,
+            threshold,
+            amount,
+            cid,
+            salt,
+            PROVE_SEED,
+        )
+        .unwrap();
+
+        let different_commitment = real_banking_commitment(&salt, amount + 1, threshold, &cid);
+        let valid =
+            verify_banking_bound(&keys.verifying_key, different_commitment, threshold, &proof)
+                .unwrap();
+        assert!(
+            !valid,
+            "a proof for one commitment must not verify against a different commitment"
         );
     }
 }

@@ -99,6 +99,45 @@ if the claim doesn't hold — see the function's own comments for why this
 was worth stating explicitly rather than assuming it "just works" the way
 it happened to for the first circuit.
 
+## Circuit 2b: `banking-basel-iii`, commitment-bound (`src/bound_circuit.rs`)
+
+Proves BOTH `amount <= threshold` AND that a public `commitment` really
+is `SHA256(salt || canonical_bytes)` for the exact same `amount`,
+`threshold`, and `customer_id_hash` — closing the real gap documented in
+`core/src/attest.rs`: without this, nothing bound the commitment
+published in an `Attestation` to the specific input the ZK proof was
+about, so a proof and a commitment could in principle be about two
+different transactions and nothing would catch it.
+
+Run `cargo run --package veritas-zk-poc --example demo_banking_bound --release`
+for the end-to-end walkthrough, including the exact mismatched-commitment
+attack this circuit exists to prevent. Last measured (see `BENCHMARKS.md`
+for the full run):
+
+| Metric | Value |
+|---|---|
+| Constraints | **81,591** (vs. 129 for the unbound circuit — the binding, not the predicate, is almost the entire cost) |
+| Public input variables | 321 (256 for the commitment digest + 64 for threshold's bits) |
+| Proving key size | 17,149,328 bytes (~16.4 MiB) |
+| Proof size | 128 bytes |
+| Trusted setup | ~5.3 s |
+| Proof generation | ~2.1 s |
+| Verification | ~3.1 ms |
+
+The predicate half (129 constraints) is reused directly from
+`TransactionThresholdCircuit` — see `bound_circuit.rs`'s own module docs
+for why `TransactionThresholdCircuit::allocate_range_checked` was made
+`pub(crate)` specifically to make that reuse possible with zero
+duplicated range-check logic, and for why the SHA-256 preimage's
+`amount`/`threshold` bytes cost nothing extra (they're a relabeling of
+bits already allocated for the range check, not a new allocation).
+
+**This circuit exists specifically to close a gap, and it only closes it
+for one rule so far.** `healthcare-hipaa` and `gov-supply-chain-integrity`
+still have the same unbound gap — see `core/src/attest.rs`'s module docs,
+which now track this gap's status per rule explicitly rather than as one
+blanket statement.
+
 ## Circuit 3: `gov-supply-chain-integrity` (`src/supply_chain_circuit.rs`)
 
 That an audit-log hash chain runs unbroken from a public genesis anchor
@@ -243,8 +282,8 @@ reads as a complete picture of what integration involves.
    `core::proof::groth16_bn254` boundary when exceeded, per that module's
    `HealthcareGroth16Backend::prove`.
 7. **Found while wiring items 1-2, confirmed again by circuit 3.** None
-   of the three circuits prove anything about fields outside their own
-   statement (e.g. `TransactionThresholdInput::customer_id_hash`,
+   of the original three circuits prove anything about fields outside
+   their own statement (e.g. `TransactionThresholdInput::customer_id_hash`,
    `DisclosureLogEntry::accessor_id_hash`/`timestamp_unix`, and
    `AuditTrailInput::period_start_unix`/`period_end_unix` — see
    `supply_chain_circuit.rs`'s own module docs for why those two stay
@@ -253,17 +292,20 @@ reads as a complete picture of what integration involves.
    proof over the subset of fields each circuit actually constrains.
    **The orchestration layer this item used to say didn't exist now
    does** — see `core/src/attest.rs`
-   (`attest_banking`/`attest_healthcare`/`attest_supply_chain`), 4
-   passing tests covering all three rule modules end-to-end (predicate
-   check → commitment → ZK proof → signature). Its own module docs are
-   explicit about a real, NOT-yet-closed gap this raised: nothing binds
-   the commitment and the ZK proof to provably the same input beyond the
-   caller passing the same value to both steps in one function call — a
-   malicious implementation of this same pattern could commit to one
-   input and prove a different one's statement, and neither this crate
-   nor `zk-poc/` currently prevents that at the protocol level (it would
-   need the commitment bound into the circuit's own public inputs, which
-   no circuit here does).
+   (`attest_banking`/`attest_healthcare`/`attest_supply_chain`), plus
+   `attest_banking_unbound`. Its own module docs track the binding gap
+   this raised **per rule, updated as it's closed one rule at a time**:
+   **`banking-basel-iii` is done** — see "Circuit 2b" above
+   (`bound_circuit.rs`, `BoundBankingGroth16Backend`) — a proof from
+   `attest_banking` genuinely cannot be paired with a commitment to a
+   different input, checked directly in that circuit's own tests.
+   `healthcare-hipaa` and `gov-supply-chain-integrity` **still have the
+   gap**: nothing binds their commitment and ZK proof to provably the
+   same input beyond the caller passing the same value to both steps in
+   one function call. Applying `bound_circuit.rs`'s pattern to those two
+   is real follow-up work, expected to cost considerably more for
+   `gov-supply-chain-integrity` specifically (already the most expensive
+   circuit by a wide margin — see `supply_chain_circuit.rs`'s own docs).
 
 ## Toolchain notes
 

@@ -187,7 +187,38 @@ modules named in `STATUS.md` — this document covers all three, both as
 raw `zk-poc/` circuits above and wired into `core/`'s `ProofSystem` trait
 below.
 
-## Real cryptography, wired into `core/`: Groth16 via `ProofSystem`
+### `banking-basel-iii`, commitment-bound
+
+```
+cargo run --package veritas-zk-poc --release --example demo_banking_bound
+```
+
+Proves BOTH the predicate AND that a public commitment really is
+`SHA256(salt || canonical_bytes)` for the exact input proven — see
+`zk-poc/README.md`'s "Circuit 2b" for why this exists (closing a real
+commitment/proof binding gap in `core/src/attest.rs`).
+
+| Metric | Value |
+|---|---|
+| Constraints | **81,591** |
+| Public input variables | 321 |
+| Proving key size | 17,149,328 bytes (~16.4 MiB) |
+| Proof size | 128 bytes |
+| Trusted setup | ~5.3 s |
+| Proof generation | ~2.1 s |
+| Verification | ~3.1 ms |
+
+Compare against the unbound circuit above (129 constraints, ~9ms to
+prove): the ~632x jump in constraints and ~230x jump in proving time is
+**the real cost of the SHA-256 binding alone** — the predicate logic is
+byte-for-byte identical between the two circuits (see
+`bound_circuit.rs`'s own docs for how the range-check bits are reused
+directly, at zero additional cost, between the two). This is the same
+order of magnitude as one entry in the supply-chain circuit's hash chain
+above, for the same underlying reason (an ~80-byte SHA-256 preimage
+crossing the 64-byte block boundary, needing two compression rounds).
+
+
 
 ```
 cargo bench --package veritas-core --bench groth16_bn254

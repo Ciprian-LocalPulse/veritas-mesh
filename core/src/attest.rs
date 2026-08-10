@@ -28,27 +28,44 @@
 //! `proof::groth16_bn254`'s module docs already explain, in the abstract,
 //! that a Groth16 proof here only covers the fields each circuit actually
 //! constrains (e.g. `TransactionThresholdInput::customer_id_hash` is
-//! outside `TransactionThresholdCircuit`). This module is where that
-//! distinction becomes real code: `input_commitment` below is always
-//! computed over `Rule::canonical_bytes(&input)` — the FULL input, every
-//! field — via `HashBasedScheme` (the only real, non-placeholder
+//! outside the ORIGINAL `TransactionThresholdCircuit`). This module is
+//! where that distinction becomes real code: `input_commitment` below is
+//! always computed over `Rule::canonical_bytes(&input)` — the FULL input,
+//! every field — via `HashBasedScheme` (the only real, non-placeholder
 //! commitment scheme today; see `commitment::pedersen`'s own docs for why
-//! that one still falls back to hash-based internally). The ZK proof is
-//! separately computed over only the subset of fields each circuit's
-//! `EntryWitness`/wire types actually use. An attestation therefore
-//! contains two independent claims about the same input: "the full input
-//! hashes to this commitment" (real, checkable once opened) and "the
-//! circuit-relevant subset of that input satisfies the rule in
-//! zero-knowledge" (real, checkable via `ProofSystem::verify`) — but nothing
-//! here proves those two claims are about the SAME underlying input beyond
-//! the caller passing the same `input` value to both steps in the same
-//! function call. A malicious prover controlling this code path could
-//! commit to one input and prove a *different* one's ZK statement; that is
-//! not prevented by anything in this file or elsewhere in this crate today
-//! (binding the commitment into the circuit's public inputs, so the SNARK
-//! itself enforces the connection, is real follow-up work, not yet done
-//! anywhere in `zk-poc/`). Stated here plainly because implying otherwise
-//! by omission would be exactly the kind of overclaim this project's own
+//! that one still falls back to hash-based internally).
+//!
+//! **Status per rule, updated as this gap gets closed one rule at a
+//! time:**
+//!
+//! - `banking-basel-iii`: **closed.** [`attest_banking`] uses
+//!   `BoundBankingGroth16Backend` (`zk-poc/src/bound_circuit.rs`), whose
+//!   circuit recomputes the commitment from the full witness
+//!   (`amount`, `threshold`, `customer_id_hash`, and the commitment's own
+//!   opening salt) and enforces it equals the public `commitment` input
+//!   — so a proof from this path genuinely cannot be paired with a
+//!   commitment to a different input; the circuit itself would reject
+//!   generating such a proof at all (see that circuit's own
+//!   `commitment_to_a_different_amount_than_the_one_proven_cannot_be_proven`
+//!   test). [`attest_banking_unbound`] still has the gap, on purpose, as
+//!   a cheaper opt-in alternative — see its own doc comment.
+//! - `healthcare-hipaa`, `gov-supply-chain-integrity`: **still open.**
+//!   [`attest_healthcare`] and [`attest_supply_chain`] below are
+//!   unchanged from before this gap was first documented: the ZK proof
+//!   is separately computed over only the subset of fields each
+//!   circuit's wire types use, and nothing proves the commitment and the
+//!   proof are about the same input beyond the caller passing the same
+//!   value to both steps in one function call. A malicious prover
+//!   controlling either code path could commit to one input and prove a
+//!   *different* one's ZK statement. Applying `bound_circuit.rs`'s
+//!   pattern to these two is real follow-up work — expect it to cost
+//!   considerably more for `gov-supply-chain-integrity` specifically,
+//!   whose circuit is already the most expensive by a wide margin (see
+//!   `supply_chain_circuit.rs`'s own docs) and would need a THIRD set of
+//!   SHA-256 operations layered on top of its existing hash chain.
+//!
+//! Stated here plainly, per rule, because implying a uniform state by
+//! omission would be exactly the kind of overclaim this project's own
 //! documentation discipline exists to prevent.
 //!
 //! # What the caller gets back
@@ -72,9 +89,10 @@ use crate::commitment::hash_based::{HashBasedScheme, HashOpening};
 use crate::commitment::CommitmentScheme;
 use crate::errors::Result;
 use crate::proof::groth16_bn254::{
-    BankingGroth16Backend, BankingPublicInput, BankingWitness, ChainEntryWire,
-    HealthcareEntryWire, HealthcareGroth16Backend, HealthcarePublicInput, HealthcareWitness,
-    SupplyChainGroth16Backend, SupplyChainPublicInput, SupplyChainWitness,
+    BankingGroth16Backend, BoundBankingGroth16Backend, BoundBankingPublicInput,
+    BoundBankingWitness, ChainEntryWire, HealthcareEntryWire, HealthcareGroth16Backend,
+    HealthcarePublicInput, HealthcareWitness, SupplyChainGroth16Backend, SupplyChainPublicInput,
+    SupplyChainWitness,
 };
 use crate::proof::{ProofSystem, ProofSystemId};
 use crate::signature::Keypair;
@@ -88,22 +106,30 @@ fn now_unix() -> u64 {
 
 /// Runs `TransactionThresholdRule::check` (in the clear, fails fast on an
 /// obviously-false claim before ever touching the expensive ZK path),
-/// commits to the full `input` via `HashBasedScheme`, proves
-/// `transaction_amount_minor <= risk_adjusted_threshold_minor` in
-/// zero-knowledge via `backend`, and signs the result with `keypair`.
+/// commits to the full `input` via `HashBasedScheme`, and proves BOTH
+/// `transaction_amount_minor <= risk_adjusted_threshold_minor` AND that
+/// the commitment really is `SHA256(salt || canonical_bytes)` for this
+/// exact input — via `BoundBankingGroth16Backend`
+/// (`zk-poc/src/bound_circuit.rs`) — before signing the result with
+/// `keypair`.
 ///
-/// The `check()` call is a real, separate gate, not decoration: the
-/// commitment and signature below would happily complete for ANY input
-/// (they don't know or care about the rule's semantics), so without it, a
-/// caller could accidentally produce a validly-signed, validly-committed
-/// `Attestation` whose ZK proof step later fails for the right reason
-/// (the claim was false) but only after paying the ~9ms Groth16 proving
-/// cost — `check()` catches that immediately instead, at the cost of
-/// evaluating the same predicate the circuit evaluates, once, in the
-/// clear, before doing it again in zero-knowledge.
+/// This is the function that closes the binding gap this module's own
+/// docs describe: unlike a hypothetical unbound version, a proof
+/// produced here cannot be paired with a commitment to a different
+/// input, because the circuit itself recomputes the commitment from the
+/// witness and rejects any mismatch (see `BoundBankingGroth16Backend`'s
+/// own docs, and `bound_circuit.rs`'s `commitment_to_a_different_amount_than_the_one_proven_cannot_be_proven`
+/// test for this checked directly). Costs meaningfully more than the
+/// unbound path — see [`attest_banking_unbound`] and `BENCHMARKS.md` for
+/// the real numbers (~81,600 constraints and ~2.1s to prove here, versus
+/// 129 constraints and ~9ms unbound).
+///
+/// The `check()` call is a real, separate gate, not decoration — see
+/// [`attest_banking_unbound`]'s doc comment for why, unchanged by this
+/// function using a different backend underneath.
 pub fn attest_banking(
     input: &TransactionThresholdInput,
-    backend: &BankingGroth16Backend,
+    backend: &BoundBankingGroth16Backend,
     keypair: &Keypair,
 ) -> Result<(Attestation, HashOpening)> {
     TransactionThresholdRule::check(input)?;
@@ -112,10 +138,13 @@ pub fn attest_banking(
     let scheme = HashBasedScheme;
     let (commitment, opening) = scheme.commit(&canonical);
 
-    let witness = serde_json::to_vec(&BankingWitness {
+    let witness = serde_json::to_vec(&BoundBankingWitness {
         transaction_amount_minor: input.transaction_amount_minor,
+        customer_id_hash: input.customer_id_hash,
+        salt: opening.salt,
     })?;
-    let public_input = serde_json::to_vec(&BankingPublicInput {
+    let public_input = serde_json::to_vec(&BoundBankingPublicInput {
+        commitment: commitment.0,
         risk_adjusted_threshold_minor: input.risk_adjusted_threshold_minor,
     })?;
     let proof = backend.prove(&witness, &public_input)?;
@@ -128,6 +157,54 @@ pub fn attest_banking(
         proof,
         prover_public_key: [0u8; 32], // overwritten by sign_attestation below
         signature: [0u8; 64],         // overwritten by sign_attestation below
+        issued_at_unix: now_unix(),
+    };
+    Ok((keypair.sign_attestation(unsigned), opening))
+}
+
+/// The ORIGINAL, UNBOUND `attest_banking` — kept, not deleted, because a
+/// caller with its own way of binding a proof to a specific commitment
+/// (or one that genuinely doesn't need the binding — e.g. a use case with
+/// no commitment at all) may still want the much cheaper unbound circuit
+/// (129 constraints and ~9ms to prove, vs. ~81,600 constraints and ~2.1s
+/// — see `BENCHMARKS.md`). **[`attest_banking`] is the function that
+/// actually closes this module's documented commitment/proof binding
+/// gap; this one still has it, on purpose, for the cost tradeoff above.**
+///
+/// The commitment and signature below would happily complete for ANY
+/// input (they don't know or care about the rule's semantics), so
+/// without `check()`, a caller could accidentally produce a validly-
+/// signed, validly-committed `Attestation` whose ZK proof step later
+/// fails for the right reason (the claim was false) but only after
+/// paying the Groth16 proving cost — `check()` catches that immediately
+/// instead.
+pub fn attest_banking_unbound(
+    input: &TransactionThresholdInput,
+    backend: &BankingGroth16Backend,
+    keypair: &Keypair,
+) -> Result<(Attestation, HashOpening)> {
+    TransactionThresholdRule::check(input)?;
+
+    let canonical = TransactionThresholdRule::canonical_bytes(input);
+    let scheme = HashBasedScheme;
+    let (commitment, opening) = scheme.commit(&canonical);
+
+    let witness = serde_json::to_vec(&crate::proof::groth16_bn254::BankingWitness {
+        transaction_amount_minor: input.transaction_amount_minor,
+    })?;
+    let public_input = serde_json::to_vec(&crate::proof::groth16_bn254::BankingPublicInput {
+        risk_adjusted_threshold_minor: input.risk_adjusted_threshold_minor,
+    })?;
+    let proof = backend.prove(&witness, &public_input)?;
+
+    let unsigned = Attestation {
+        schema_version: SCHEMA_VERSION,
+        rule_id: TransactionThresholdRule::RULE_ID.to_string(),
+        proof_system: ProofSystemId::Groth16Bn254,
+        input_commitment: commitment.0.to_vec(),
+        proof,
+        prover_public_key: [0u8; 32],
+        signature: [0u8; 64],
         issued_at_unix: now_unix(),
     };
     Ok((keypair.sign_attestation(unsigned), opening))
@@ -254,7 +331,7 @@ mod tests {
 
     #[test]
     fn attest_banking_produces_a_verifiable_attestation() {
-        let backend = BankingGroth16Backend::setup(SETUP_SEED).unwrap();
+        let backend = BoundBankingGroth16Backend::setup(SETUP_SEED).unwrap();
         let keypair = Keypair::generate();
         let input = TransactionThresholdInput {
             transaction_amount_minor: 50_000,
@@ -266,14 +343,16 @@ mod tests {
             .expect("attest_banking should succeed for a genuinely compliant input");
 
         // Every real piece is actually checkable, independently, exactly
-        // as a real Verifier would: signature, then ZK proof, then (if
-        // this Verifier is also the counterparty entitled to the
-        // opening) the commitment.
+        // as a real Verifier would: signature, then ZK proof (which now
+        // ALSO checks the commitment binding, not just the predicate),
+        // then (if this Verifier is also the counterparty entitled to
+        // the opening) the commitment itself.
         verify_attestation(&attestation).expect("signature must verify");
         backend
             .verify(
                 &attestation.proof,
-                &serde_json::to_vec(&BankingPublicInput {
+                &serde_json::to_vec(&BoundBankingPublicInput {
+                    commitment: attestation.input_commitment.clone().try_into().unwrap(),
                     risk_adjusted_threshold_minor: input.risk_adjusted_threshold_minor,
                 })
                 .unwrap(),
@@ -295,7 +374,7 @@ mod tests {
 
     #[test]
     fn attest_banking_rejects_a_false_claim_before_any_zk_work() {
-        let backend = BankingGroth16Backend::setup(SETUP_SEED).unwrap();
+        let backend = BoundBankingGroth16Backend::setup(SETUP_SEED).unwrap();
         let keypair = Keypair::generate();
         let input = TransactionThresholdInput {
             transaction_amount_minor: 200_000, // > threshold
@@ -307,6 +386,31 @@ mod tests {
             result.is_err(),
             "attest_banking must reject a claim TransactionThresholdRule::check itself rejects"
         );
+    }
+
+    #[test]
+    fn attest_banking_unbound_still_produces_a_verifiable_attestation() {
+        // The cheaper, still-available, still-gapped path -- see its own
+        // doc comment for why it stays.
+        let backend = BankingGroth16Backend::setup(SETUP_SEED).unwrap();
+        let keypair = Keypair::generate();
+        let input = TransactionThresholdInput {
+            transaction_amount_minor: 50_000,
+            risk_adjusted_threshold_minor: 100_000,
+            customer_id_hash: [1u8; 32],
+        };
+        let (attestation, _opening) = attest_banking_unbound(&input, &backend, &keypair)
+            .expect("attest_banking_unbound should succeed for a genuinely compliant input");
+        verify_attestation(&attestation).expect("signature must verify");
+        backend
+            .verify(
+                &attestation.proof,
+                &serde_json::to_vec(&crate::proof::groth16_bn254::BankingPublicInput {
+                    risk_adjusted_threshold_minor: input.risk_adjusted_threshold_minor,
+                })
+                .unwrap(),
+            )
+            .expect("ZK proof must verify");
     }
 
     #[test]

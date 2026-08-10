@@ -16,8 +16,8 @@ regulatory compliance to a real regulator.
 
 | Layer | What's real | Evidence |
 |---|---|---|
-| `core/` (Rust) | `Attestation` struct + deterministic signing-byte encoding; Ed25519 sign/verify; SHA-256 hash-based commitment scheme (real hiding + binding under RO model); 3 compliance rule *predicates* evaluated in the clear; all 3 also have a real Groth16-over-BN254 `ProofSystem` backend (`proof::groth16_bn254`, wired to `veritas-zk-poc`); **and now a real orchestration layer** (`attest::attest_banking`/`attest_healthcare`/`attest_supply_chain` in `attest.rs`) tying predicate check → commitment → ZK proof → signature into one call per rule — see below | `cargo test --workspace`: **37 unit tests pass** (`proof::groth16_bn254`: 12, `attest`: 4, covering all three rule modules end-to-end), **45 total** including integration tests |
-| `sdk/rust/` | Thin prover/verifier wrapper over `core/` | included in the 31 above |
+| `core/` (Rust) | `Attestation` struct + deterministic signing-byte encoding; Ed25519 sign/verify; SHA-256 hash-based commitment scheme (real hiding + binding under RO model); 3 compliance rule *predicates* evaluated in the clear; all 3 also have a real Groth16-over-BN254 `ProofSystem` backend (`proof::groth16_bn254`, wired to `veritas-zk-poc`); a real orchestration layer (`attest::attest_banking`/`attest_healthcare`/`attest_supply_chain` in `attest.rs`) tying predicate check → commitment → ZK proof → signature into one call per rule; and now, **for `banking-basel-iii` specifically, the commitment and the ZK proof are cryptographically bound to the same input** (`attest_banking` uses `BoundBankingGroth16Backend`, closing a real gap `attest.rs`'s own docs used to describe as fully open — see below) | `cargo test --workspace`: **38 unit tests pass** (`proof::groth16_bn254`: 12, `attest`: 5, covering all three rule modules end-to-end plus the unbound banking path), **46 total** including integration tests |
+| `sdk/rust/` | Thin prover/verifier wrapper over `core/` | separate 2-test crate, not included in the 46 above (see total below) |
 | `mesh/` (Go) | In-memory + JSON-lines storage; peer registry; push-based gossip with dedup; a runnable (if network-less) node binary | `go test ./...`: **6 tests pass** across `mesh/` and `sdk/go/` |
 | `sdk/go/` | Audit-trail-integrity rule check, matching Rust's byte-for-byte | included above |
 | `sdk/python/` | Transaction-threshold rule check; **runs the actual `core/tests/vectors/banking-basel-iii.json` fixture** to check agreement with the Rust implementation | `pytest`: **9 tests pass** |
@@ -28,16 +28,18 @@ regulatory compliance to a real regulator.
 | `zk-poc/` (Rust) | **Three real Groth16 zero-knowledge circuits** (BN254, via `arkworks`), one for each rule module: `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks); `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`); `gov-supply-chain-integrity`'s audit-log hash-chain integrity (real SHA-256 R1CS gadget, `MAX_ENTRIES=4` — see below for why so much smaller). Only the first two are wired into `core/`'s `ProofSystem` trait so far — see `zk-poc/README.md` | `cargo test --package veritas-zk-poc`: **33 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, a test confirming a healthcare proof doesn't verify against a different `record_id`, and one confirming a supply-chain proof doesn't verify against a different `genesis_hash`. `cargo run --example demo --release`, `--example demo_healthcare --release`, and `--example demo_supply_chain --release` print concrete metrics: banking is 129 constraints / 128-byte proofs / ~9ms prove / ~3ms verify; healthcare is 65 constraints / 128-byte proofs / ~5.6ms prove / ~3.1ms verify; **supply-chain is 318,668 constraints / 128-byte proofs / ~8.6s prove / ~2.8ms verify, with a ~64 MiB proving key** — see `BENCHMARKS.md` for the full statistical runs and why that proving key size is a real deployment cost, not just a large number |
 | `.github/workflows/ci.yml` | Real per-language test jobs, one per row above (Rust workspace, `mesh`/`sdk/go` via matrix, `sdk/python`+`analysis`, `sdk/typescript`, `dashboard`) | Every command in it was individually verified to pass in this repo's dev environment before the file was written (see `.github/workflows/ci.yml`'s own header comment) — **this line previously claimed this file existed when it did not; that was false and has been corrected.** Existing here means the workflow is committed, not that it has run on GitHub's own infrastructure yet — that only becomes true the first time it actually executes there |
 
-**Total: 121 automated tests across 5 languages/toolchains, all passing as
+**Total: 130 automated tests across 5 languages/toolchains, all passing as
 of this commit** — measured directly per component, all individually
 re-verified while building `.github/workflows/ci.yml` (not just carried
-forward from an earlier count): **45** in `core/`
-(`cargo test --package veritas-core`: 37 unit + 7
+forward from an earlier count): **46** in `core/`
+(`cargo test --package veritas-core`: 38 unit + 7
 `negative_cases` + 1 `roundtrip`, of which `proof::groth16_bn254` accounts
 for 12 — 5 `banking-basel-iii`, 5 `healthcare-hipaa`, 2
-`gov-supply-chain-integrity` — and `attest` accounts for 4, one per rule
-plus a false-claim rejection test), **33** in `zk-poc/`
-(`cargo test --package veritas-zk-poc`), **2** in `sdk/rust`, **9** in Go
+`gov-supply-chain-integrity` — and `attest` accounts for 5, covering all
+three rule modules plus a dedicated unbound-banking-path test), **41** in
+`zk-poc/` (`cargo test --package veritas-zk-poc`, up from 33 —
+`bound_circuit.rs`'s commitment-binding tests account for the increase),
+**2** in `sdk/rust`, **9** in Go
 (`go test ./...`: 3 in `mesh`, 6 in `sdk/go`), **19** in Python
 (`pytest`: 9 in `sdk/python`, 10 in `analysis`), **13** in TypeScript
 (`npm test`: 3 in `dashboard`, 10 in `sdk/typescript`) — unchanged by any
@@ -129,15 +131,27 @@ commitments, and Groth16-over-BN254 proofs — see above), reachable
 through a real orchestration layer (`core::attest`) that ties them
 together into an `Attestation`. **What still stands between that and "an
 `Attestation` actually means something to an outside verifier":**
-`attest()`'s own module docs flag a real, unclosed gap — nothing today
-binds the commitment and the ZK proof to provably the same input beyond
-trusting the calling code to pass the same value to both steps in one
-function call. A modified `attest()` (or a different implementation of
-the same pattern) could commit to one input and prove a *different*
-input's statement, and neither `core/` nor `zk-poc/` would catch that;
-closing it means binding the commitment into each circuit's own public
-inputs, which no circuit here does yet. Closing that, and the remaining
-gaps above (trusted-setup ceremonies, `gov-supply-chain-integrity`'s
-proving-key distribution problem, an external audit), is real
-research-and-engineering work, not something fillable by generating more
-scaffolding files.
+`attest()`'s own module docs used to flag one blanket gap here — nothing
+binding the commitment and the ZK proof to provably the same input. That
+gap is now **closed for `banking-basel-iii`**: `attest_banking` uses
+`BoundBankingGroth16Backend` (`zk-poc/src/bound_circuit.rs`), whose
+circuit recomputes the commitment from the full witness inside the proof
+itself and rejects any mismatch — a proof from that path genuinely cannot
+be paired with a commitment to a different input, checked directly in
+that circuit's own tests, not just asserted. It costs real money in
+proving time to get this (~2.1s vs. ~9ms unbound — see `BENCHMARKS.md`),
+which is why `attest_banking_unbound` still exists as a documented,
+deliberately-gapped, cheaper alternative for callers with their own
+binding mechanism. **`healthcare-hipaa` and `gov-supply-chain-integrity`
+still have the gap, unclosed**: a modified `attest_healthcare`/
+`attest_supply_chain` (or a different implementation of the same pattern)
+could commit to one input and prove a *different* input's statement, and
+neither `core/` nor `zk-poc/` would catch that for those two rules yet.
+Closing it for `gov-supply-chain-integrity` specifically is expected to
+be the most expensive of the three, given that circuit is already the
+priciest by a wide margin (see `supply_chain_circuit.rs`'s own docs) —
+adding a second SHA-256 computation on top of its existing hash chain,
+not a first one. Closing those two, and the remaining gaps above
+(trusted-setup ceremonies, `gov-supply-chain-integrity`'s proving-key
+distribution problem, an external audit), is real research-and-engineering
+work, not something fillable by generating more scaffolding files.
