@@ -1,0 +1,9 @@
+# Build context here is mesh/ itself (see Dockerfile's header comment
+# for the exact build command) -- this directory is already small and
+# clean, but excluding these keeps it that way as the module grows.
+Dockerfile
+.dockerignore
+README.md
+tests/
+*.test
+*.jsonl

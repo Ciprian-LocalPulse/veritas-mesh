@@ -82,7 +82,7 @@ veritas-mesh/
 | Protocol specification | Early draft — core attestation model defined, formal proofs in progress |
 | Proof engine (`core/`) | Design phase — no production code yet |
 | Risk/analysis layer (`analysis/`) | Not started |
-| Mesh network (`mesh/`) | Not started |
+| Mesh network (`mesh/`) | Local wiring only — no network transport (see [`mesh/README.md`](mesh/README.md)) |
 | Dashboard | Not started |
 | Compliance mappings | Not started |
 | Formal verification (TLA+) | Not started |
