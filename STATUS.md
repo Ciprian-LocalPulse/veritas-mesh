@@ -25,10 +25,10 @@ regulatory compliance to a real regulator.
 | `dashboard/` (TS+React) | `AttestationViewer`, `RuleModuleExplorer`, typed `veritasClient.ts` | `tsc --noEmit` clean (strict mode); `vitest`: **3 tests pass** |
 | `sdk/typescript/` | Transaction-threshold rule check; also runs the JSON vector fixture | `tsc --noEmit` clean; `vitest`: **10 tests pass** |
 | `proto/` | `.proto` schema for attestations, rule-module publishing, and a gRPC verifier service; a `buf.gen.yaml` codegen config | Schema-valid; **not yet run** — see below |
-| `zk-poc/` (Rust) | **Three real Groth16 zero-knowledge circuits** (BN254, via `arkworks`), one for each rule module: `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks); `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`); `gov-supply-chain-integrity`'s audit-log hash-chain integrity (real SHA-256 R1CS gadget, `MAX_ENTRIES=4` — see below for why so much smaller). Only the first two are wired into `core/`'s `ProofSystem` trait so far — see `zk-poc/README.md` | `cargo test --package veritas-zk-poc`: **33 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, a test confirming a healthcare proof doesn't verify against a different `record_id`, and one confirming a supply-chain proof doesn't verify against a different `genesis_hash`. `cargo run --example demo --release`, `--example demo_healthcare --release`, and `--example demo_supply_chain --release` print concrete metrics: banking is 129 constraints / 128-byte proofs / ~9ms prove / ~3ms verify; healthcare is 65 constraints / 128-byte proofs / ~5.6ms prove / ~3.1ms verify; **supply-chain is 318,668 constraints / 128-byte proofs / ~8.6s prove / ~2.8ms verify, with a ~64 MiB proving key** — see `BENCHMARKS.md` for the full statistical runs and why that proving key size is a real deployment cost, not just a large number |
+| `zk-poc/` (Rust) | **Four real Groth16 zero-knowledge circuits** (BN254, via `arkworks`): `banking-basel-iii`'s `amount <= threshold` (bit-decomposition range checks) in both unbound and commitment-bound forms; `healthcare-hipaa`'s disclosure-logging predicate (fixed-capacity active/authorized boolean array, `MAX_ENTRIES=16`); `gov-supply-chain-integrity`'s audit-log hash-chain integrity (real SHA-256 R1CS gadget, `MAX_ENTRIES=4` — see below for why so much smaller). All three rule modules are wired into `core/`'s `ProofSystem` trait (`banking-basel-iii` in both forms) — see `zk-poc/README.md`. `src/bin/generate_keys.rs` generates/catalogs real key files for all four circuits, with a real load-and-reuse round-trip test; the two small circuits' keys are checked in under `zk-poc/keys/` | `cargo test --package veritas-zk-poc`: **42 tests pass**, including soundness tests that a false claim cannot be proven at all for each circuit, a test confirming a healthcare proof doesn't verify against a different `record_id`, one confirming a supply-chain proof doesn't verify against a different `genesis_hash`, one confirming a banking-bound proof doesn't verify against a different commitment, and the key save/load round-trip. `cargo run --example demo --release`, `--example demo_healthcare --release`, `--example demo_supply_chain --release`, and `--example demo_banking_bound --release` print concrete metrics — see `BENCHMARKS.md` for the full statistical runs, including why the bound circuit's ~81,600 constraints and the supply-chain circuit's ~64 MiB proving key are real deployment costs, not just large numbers |
 | `.github/workflows/ci.yml` | Real per-language test jobs, one per row above (Rust workspace, `mesh`/`sdk/go` via matrix, `sdk/python`+`analysis`, `sdk/typescript`, `dashboard`) | Every command in it was individually verified to pass in this repo's dev environment before the file was written (see `.github/workflows/ci.yml`'s own header comment) — **this line previously claimed this file existed when it did not; that was false and has been corrected.** Existing here means the workflow is committed, not that it has run on GitHub's own infrastructure yet — that only becomes true the first time it actually executes there |
 
-**Total: 130 automated tests across 5 languages/toolchains, all passing as
+**Total: 131 automated tests across 5 languages/toolchains, all passing as
 of this commit** — measured directly per component, all individually
 re-verified while building `.github/workflows/ci.yml` (not just carried
 forward from an earlier count): **46** in `core/`
@@ -36,10 +36,11 @@ forward from an earlier count): **46** in `core/`
 `negative_cases` + 1 `roundtrip`, of which `proof::groth16_bn254` accounts
 for 12 — 5 `banking-basel-iii`, 5 `healthcare-hipaa`, 2
 `gov-supply-chain-integrity` — and `attest` accounts for 5, covering all
-three rule modules plus a dedicated unbound-banking-path test), **41** in
+three rule modules plus a dedicated unbound-banking-path test), **42** in
 `zk-poc/` (`cargo test --package veritas-zk-poc`, up from 33 —
-`bound_circuit.rs`'s commitment-binding tests account for the increase),
-**2** in `sdk/rust`, **9** in Go
+`bound_circuit.rs`'s commitment-binding tests and the
+`generate_keys`/`Keys::load_from_files` round-trip test account for the
+increase), **2** in `sdk/rust`, **9** in Go
 (`go test ./...`: 3 in `mesh`, 6 in `sdk/go`), **19** in Python
 (`pytest`: 9 in `sdk/python`, 10 in `analysis`), **13** in TypeScript
 (`npm test`: 3 in `dashboard`, 10 in `sdk/typescript`) — unchanged by any

@@ -43,6 +43,7 @@ pub mod supply_chain_circuit;
 use ark_bn254::{Bn254, Fr};
 use ark_groth16::{Groth16, PreparedVerifyingKey, Proof, ProvingKey, VerifyingKey};
 use ark_relations::r1cs::SynthesisError;
+use ark_serialize::{CanonicalDeserialize, CanonicalSerialize};
 use ark_snark::SNARK;
 use ark_std::rand::{Rng, SeedableRng};
 use rand_chacha::ChaCha20Rng;
@@ -60,6 +61,10 @@ pub enum ZkPocError {
     Proving(SynthesisError),
     #[error("verification failed: {0}")]
     Verification(SynthesisError),
+    #[error("reading/writing key file: {0}")]
+    Io(std::io::Error),
+    #[error("(de)serializing a key: {0}")]
+    Serialization(ark_serialize::SerializationError),
 }
 
 /// The output of a (non-ceremony) trusted setup for a FIXED threshold.
@@ -70,6 +75,52 @@ pub enum ZkPocError {
 pub struct Keys {
     pub proving_key: ProvingKey<Bn254>,
     pub verifying_key: VerifyingKey<Bn254>,
+}
+
+impl Keys {
+    /// Loads a proving/verifying key pair previously written by
+    /// `src/bin/generate_keys.rs` (or anything else using the same
+    /// `ark_serialize::CanonicalSerialize` compressed format). This is
+    /// the "reuse across every proof" half of `zk-poc/README.md` item
+    /// 3 — a real caller should load keys once via this function at
+    /// startup (or lazily, cached), not call `setup()` per attestation.
+    ///
+    /// Does NOT verify the loaded keys are the RIGHT keys for a given
+    /// circuit shape — a caller that cares should independently compute
+    /// `sha256(verifying_key_bytes)` and compare it against the
+    /// `circuit_digest` it expects (per
+    /// `proto/veritas/v1/rule_module.proto`'s `RuleModuleManifest`)
+    /// before trusting these keys for anything. See `zk-poc/keys/README.md`
+    /// for why "loads successfully" and "loads the keys you actually
+    /// meant to load" are different claims.
+    pub fn load_from_files(
+        proving_key_path: &std::path::Path,
+        verifying_key_path: &std::path::Path,
+    ) -> Result<Self, ZkPocError> {
+        let pk_bytes = std::fs::read(proving_key_path).map_err(ZkPocError::Io)?;
+        let vk_bytes = std::fs::read(verifying_key_path).map_err(ZkPocError::Io)?;
+        let proving_key = ProvingKey::<Bn254>::deserialize_compressed(&pk_bytes[..])
+            .map_err(ZkPocError::Serialization)?;
+        let verifying_key = VerifyingKey::<Bn254>::deserialize_compressed(&vk_bytes[..])
+            .map_err(ZkPocError::Serialization)?;
+        Ok(Self {
+            proving_key,
+            verifying_key,
+        })
+    }
+
+    /// The SHA-256 digest `generate_keys` records in its manifest and
+    /// `RuleModuleManifest.circuit_digest` expects — computed here too,
+    /// so a caller checking a loaded key's digest doesn't need its own
+    /// copy of this one-line computation.
+    pub fn verifying_key_digest(&self) -> Result<[u8; 32], ZkPocError> {
+        use sha2::{Digest, Sha256};
+        let mut buf = Vec::new();
+        self.verifying_key
+            .serialize_compressed(&mut buf)
+            .map_err(ZkPocError::Serialization)?;
+        Ok(Sha256::digest(&buf).into())
+    }
 }
 
 /// Runs Groth16 setup over the circuit's constraint shape. Uses a
@@ -707,5 +758,62 @@ mod tests {
             !valid,
             "a proof for one commitment must not verify against a different commitment"
         );
+    }
+
+    // --- Keys::load_from_files round-trip ---
+
+    #[test]
+    fn saved_and_loaded_keys_work_identically_to_the_originals() {
+        // Real round-trip: generate keys, write them exactly as
+        // generate_keys.rs does, load them back via Keys::load_from_files,
+        // and confirm a proof made with the LOADED proving key verifies
+        // with the LOADED verifying key -- not just that deserialization
+        // doesn't error.
+        let dir = std::env::temp_dir().join(format!(
+            "veritas_zk_poc_test_{}",
+            std::process::id()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let pk_path = dir.join("healthcare-hipaa.pk");
+        let vk_path = dir.join("healthcare-hipaa.vk");
+
+        let original = setup_healthcare(SETUP_SEED).expect("setup should succeed");
+        let mut pk_bytes = Vec::new();
+        original
+            .proving_key
+            .serialize_compressed(&mut pk_bytes)
+            .unwrap();
+        let mut vk_bytes = Vec::new();
+        original
+            .verifying_key
+            .serialize_compressed(&mut vk_bytes)
+            .unwrap();
+        std::fs::write(&pk_path, &pk_bytes).unwrap();
+        std::fs::write(&vk_path, &vk_bytes).unwrap();
+
+        let loaded = Keys::load_from_files(&pk_path, &vk_path)
+            .expect("loading previously-saved keys should succeed");
+
+        assert_eq!(
+            original.verifying_key_digest().unwrap(),
+            loaded.verifying_key_digest().unwrap(),
+            "a loaded key's digest must match the original's"
+        );
+
+        let record_id = Fr::from(1u64);
+        let entries = [EntryWitness {
+            is_active: true,
+            authorized: true,
+        }];
+        let proof = prove_healthcare(&loaded.proving_key, record_id, 1, &entries, PROVE_SEED)
+            .expect("proving with a LOADED proving key should work identically to the original");
+        let valid = verify_healthcare(&loaded.verifying_key, record_id, 1, &proof)
+            .expect("verification should not error");
+        assert!(
+            valid,
+            "a proof made with loaded keys must verify against the loaded verifying key"
+        );
+
+        std::fs::remove_dir_all(&dir).ok();
     }
 }

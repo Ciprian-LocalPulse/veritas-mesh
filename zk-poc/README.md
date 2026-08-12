@@ -236,16 +236,28 @@ reads as a complete picture of what integration involves.
    rule module needs it as a fallback anymore now that all three have a
    real backend, but it stays as documented reference material (what a
    placeholder looked like) per its own module docs.
-3. Decide where each rule's `ProvingKey`/`VerifyingKey` (this crate's
-   `Keys`) get stored/distributed — they need to be published once (see
-   `proto/veritas/v1/rule_module.proto`'s `RuleModuleManifest.circuit_digest`,
-   which already has a field for exactly this) and reused across every
-   proof for that rule, not regenerated per-attestation. **Still open** —
-   `BankingGroth16Backend::setup`/`HealthcareGroth16Backend::setup` still
-   generate fresh (non-ceremony) keys per call, exactly like this crate's
-   own `setup`/`setup_healthcare`; `from_keys` exists on both backend
-   structs so a caller CAN load externally-published keys instead, but
-   nothing yet does.
+3. ~~Decide where each rule's `ProvingKey`/`VerifyingKey` (this crate's
+   `Keys`) get stored/distributed~~ **Infrastructure done, wiring still
+   open.** `src/bin/generate_keys.rs` generates, serializes, and catalogs
+   keys for all four circuits in one run, computing each one's
+   `circuit_digest` (`SHA-256(verifying_key_bytes)`, matching
+   `proto/veritas/v1/rule_module.proto`'s `RuleModuleManifest.circuit_digest`
+   exactly). `Keys::load_from_files`/`Keys::verifying_key_digest` close
+   the loop — a real, tested round-trip
+   (`saved_and_loaded_keys_work_identically_to_the_originals`) confirms a
+   proof made with a loaded proving key verifies against the loaded
+   verifying key. The two small circuits' keys
+   (`banking-basel-iii`, `healthcare-hipaa`) are checked in under
+   `zk-poc/keys/` as a real, digest-verified example; the two large ones
+   (`banking-basel-iii-bound` ~16.4 MiB,
+   `gov-supply-chain-integrity` ~64 MiB) deliberately are not — see
+   `zk-poc/keys/README.md` for why, and for the same non-ceremony caveat
+   repeated there. **Still open:** no code in `core::attest` actually
+   loads from `zk-poc/keys/` yet — every backend's `setup()` is still
+   what gets called, generating fresh (equally non-ceremony) keys each
+   time rather than reusing published ones. Wiring `core::attest` to load
+   once via `Keys::load_from_files`/`from_keys` instead is the remaining
+   piece of this item.
 4. Replace the fixed-seed RNG in both `setup()`/`setup_healthcare()` with
    either a real multi-party trusted-setup ceremony, or switch rules to a
    transparent proof system (STARK) per RFC-0002 to avoid the ceremony
